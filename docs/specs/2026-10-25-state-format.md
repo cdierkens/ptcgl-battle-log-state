@@ -174,9 +174,9 @@ than it needs to be.
 ```
 
 Event kinds and their fields belong to the identity spec's lowering contract;
-this document only fixes the envelope. The breakdown is carried because it is a
-free self-check: it must sum to `amount`, and a mismatch is a lowering or
-card-data defect reported at its own line.
+this document only fixes the envelope. The breakdown is carried as printed and is
+not asserted to sum to `amount`: two arithmetic rules were falsified by real logs
+(D22 of the identity spec), so it is provenance rather than a check.
 
 ## Decisions
 
@@ -218,17 +218,16 @@ evolution, a retreat among same-name copies, or a knockout — where the survivi
 groups' multisets are correlated. The worked froslass example is the proof: after
 `Slowpoke → Slowking`, the question is whether the Slowking or the surviving
 Slowpoke carries 30 damage, and no `ptcgl-state/1` document with `slots` +
-`groups` can say both. The census ([2026-10-26](docs/audits/2026-10-26-fork-census.md))
-measures it; `reconstruct()` stays out of scope until the format grows a
-cross-group scenario.
+`groups` can say both. [The census](../audits/2026-10-26-fork-census.md) measures
+it; `reconstruct()` stays out of scope until the format grows a cross-group
+scenario.
 
 **A move to a hidden zone has no source zone.** `moveCard` says the destination,
-not whether the card came from the board or the discard. `Night Stretcher: moved
-Mega Excadrill ex to hand` is the discard, not the active Pokémon. The ledger
+not whether the card came from the board or the discard. A card-recovery Trainer
+can print `moved <card> to hand` while the same name is also in play. The ledger
 keeps the body rather than deleting it on no evidence, and reports the
 over-count; the event should carry a source zone (or the lowering should
-distinguish the two templates) in a follow-up. The census is
-[2026-10-26](../audits/2026-10-26-fork-census.md).
+distinguish the two templates) in a follow-up.
 
 ## Open questions
 

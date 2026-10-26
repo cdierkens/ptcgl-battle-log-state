@@ -57,9 +57,11 @@ export interface LedgerDiagnostic {
     | "AttachmentMismatch"
     | "BenchOverflow"
     | "HealOverflow"
+    | "KnockoutUnproven"
     | "NoVariant"
     | "PrizeOverflow"
     | "Saturated"
+    | "SideAmbiguous"
     | "SideMismatch"
     | "UnknownGroup";
   readonly severity: "warning" | "error";
@@ -176,7 +178,12 @@ const valueKey = (value: MaterialValue): string =>
   ].join("\u0000");
 
 const renderKey = (value: MaterialValue): string =>
-  [value.zone, String(value.damage), [...value.attachments].sort().join("\u0001")].join("\u0000");
+  [
+    value.zone,
+    String(value.damage),
+    [...value.attachments].sort().join("\u0001"),
+    [...value.under].join("\u0001"),
+  ].join("\u0000");
 
 const sortValues = (values: readonly MaterialValue[]): readonly MaterialValue[] =>
   [...values].sort((left, right) => valueKey(left).localeCompare(valueKey(right)));
@@ -219,9 +226,18 @@ const removeFromPile = (
   return { ...value, attachments, under };
 };
 
+/** Two card piles name the same multiset. */
+const sameMultiset = (left: readonly string[], right: readonly string[]): boolean => {
+  if (left.length !== right.length) {
+    return false;
+  }
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.every((card, index) => card === sortedRight[index]);
+};
+
 /** Multiset containment: every card in `wanted` occurs at least as often in `have`. */
-const containsAll = (have: readonly string[], wanted: readonly string[]): boolean => {
-  if (wanted.length === 0) {
+const containsAll = (have: readonly string[], wanted: readonly string[]): boolean => {  if (wanted.length === 0) {
     return true;
   }
   const counts = new Map<string, number>();
@@ -237,8 +253,6 @@ const containsAll = (have: readonly string[], wanted: readonly string[]): boolea
   }
   return true;
 };
-
-/** Remove one occurrence of each card in `wanted` from `have`. */
 
 /** Every distinct subset of `cards` of size `count`, by value rather than index. */
 const subsets = (cards: readonly string[], count: number): readonly (readonly string[])[] => {
@@ -269,7 +283,7 @@ const subsets = (cards: readonly string[], count: number): readonly (readonly st
   return [...out.values()];
 };
 
-const isLethal = (
+const knockoutFollows = (
   events: readonly GameEvent[],
   index: number,
   side: Side,
@@ -279,6 +293,9 @@ const isLethal = (
   if (source === undefined) {
     return false;
   }
+  // A knockout is printed within a handful of lines of the hit that caused it
+  // (damage, maybe modifiers or sub-entries, then the knockout). Eight events is
+  // wide enough to cross those lines and narrow enough to stop at the next turn.
   for (let offset = 1; offset <= 8; offset += 1) {
     const event = events[index + offset];
     if (event === undefined || event.at.phaseIndex !== source.at.phaseIndex) {
@@ -441,10 +458,20 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     at: EventLocation,
   ): MutableGroup | null => {
     const direct = state.groups.get(keyOf(target.side, target.name));
+    const opposite = state.groups.get(keyOf(otherSide(target.side), target.name));
+    if (direct !== undefined && opposite !== undefined) {
+      diagnose(
+        "SideAmbiguous",
+        "warning",
+        `${what} names ${target.name}, which is on both sides; using the side the log named`,
+        at,
+        direct,
+      );
+      return direct;
+    }
     if (direct !== undefined) {
       return direct;
     }
-    const opposite = state.groups.get(keyOf(otherSide(target.side), target.name));
     if (opposite !== undefined) {
       diagnose(
         "SideMismatch",
@@ -474,7 +501,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
   };
 
   const observe = (group: MutableGroup, at: EventLocation): void => {
-    const render = group.saturated ? Math.max(2, renderCount(group)) : renderCount(group);
+    const render = renderCount(group);
     if (render > 1 && group.lastRenderCount <= 1) {
       group.forkCount += 1;
     }
@@ -484,6 +511,10 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
       if (group.firstForkAt === null) {
         group.firstForkAt = at;
       }
+      group.resolvedAt = null;
+    } else if (group.saturated) {
+      // Truncation hid whether the remaining variants would render differently.
+      // Keep it unresolved; the census counts saturation as never confirmed.
       group.resolvedAt = null;
     } else if (group.everDivergent && group.resolvedAt === null) {
       group.resolvedAt = at;
@@ -707,30 +738,42 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
       ]));
   };
 
-  const applyToAnyMatching = (
+  const damageValue = (
+    value: MaterialValue,
+    amount: number,
+    lethal: boolean,
+  ): MaterialValue => {
+    const damage = value.damage + amount;
+    return {
+      ...value,
+      damage,
+      hp: lethal ? value.hp : { ...value.hp, min: Math.max(value.hp.min, damage) },
+    };
+  };
+
+  const activeStates = (group: MutableGroup): readonly boolean[] =>
+    [...group.variants.values()].map((values) =>
+      values.some((value) => value.zone === "active"));
+
+  /** Subtract damage from one body; warn when no body carries enough. */
+  const subtractDamage = (
     group: MutableGroup,
     at: EventLocation,
-    predicate: (value: MaterialValue) => boolean,
-    transform: (value: MaterialValue) => MaterialValue,
-  ): boolean => {
-    if (!hasMatch(group, predicate)) {
-      return false;
+    amount: number,
+    name: string,
+    what: string,
+  ): void => {
+    const exact = (value: MaterialValue): boolean => value.damage >= amount;
+    const exactPossible = hasMatch(group, exact);
+    if (!exactPossible) {
+      diagnose("HealOverflow", "warning", `${what} exceeds the tracked damage on ${name}`, at, group);
     }
-    expand(group, at, (values) => {
-      const nexts: (readonly MaterialValue[])[] = [];
-      values.forEach((value, index) => {
-        if (!predicate(value)) {
-          return;
-        }
-        nexts.push([
-          ...values.slice(0, index),
-          transform(value),
-          ...values.slice(index + 1),
-        ]);
-      });
-      return nexts;
-    });
-    return true;
+    replaceOne(
+      group,
+      at,
+      (value) => (exactPossible ? exact(value) : true),
+      (value) => ({ ...value, damage: Math.max(0, value.damage - amount) }),
+    );
   };
 
   const minBench = (side: Side): number => {
@@ -760,14 +803,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     if (group === null) {
       return;
     }
-    applyToAny(group, at, (value) => {
-      const damage = value.damage + amount;
-      return {
-        ...value,
-        damage,
-        hp: lethal ? value.hp : { ...value.hp, min: Math.max(value.hp.min, damage) },
-      };
-    });
+    applyToAny(group, at, (value) => damageValue(value, amount, lethal));
   };
 
   const healGroup = (
@@ -779,22 +815,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     if (group === null) {
       return;
     }
-    const exact = (value: MaterialValue): boolean => value.damage >= amount;
-    const exactPossible = hasMatch(group, exact);
-    if (!exactPossible) {      diagnose(
-        "HealOverflow",
-        "warning",
-        `healing ${String(amount)} exceeds every tracked damage value on ${target.name}`,
-        at,
-        group,
-      );
-    }
-    applyToAnyMatching(
-      group,
-      at,
-      (value) => (exactPossible ? exact(value) : true),
-      (value) => ({ ...value, damage: Math.max(0, value.damage - amount) }),
-    );
+    subtractDamage(group, at, amount, target.name, `healing ${String(amount)}`);
   };
 
   const attachTo = (
@@ -818,7 +839,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
       );
       return;
     }
-    applyToAnyMatching(group, at, inZone, (value) => ({
+    replaceOne(group, at, inZone, (value) => ({
       ...value,
       attachments: [...value.attachments, card],
     }));
@@ -862,6 +883,18 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     }
 
     state.pending.set(group.key, { at, group, options: [...options.values()] });
+
+    const lethalOptions = [...options.values()].filter((option) =>
+      option.removed.damage > option.removed.hp.min);
+    if (lethalOptions.length === 0) {
+      diagnose(
+        "KnockoutUnproven",
+        "warning",
+        `no tracked body of ${target.name} carried enough damage to explain the knockout`,
+        at,
+        group,
+      );
+    }
   };
 
   const commitKnockout = (pending: PendingKnockout): void => {
@@ -877,9 +910,8 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     group.variants = next;
     group.members -= 1;
     if (group.id === state.active[group.side]) {
-      const activeStates = [...next.values()].map((values) =>
-        values.some((value) => value.zone === "active"));
-      if (activeStates.length === 0 || !activeStates.every(Boolean)) {
+      const states = activeStates(group);
+      if (states.length === 0 || !states.every(Boolean)) {
         state.active[group.side] = null;
       }
     }
@@ -974,12 +1006,9 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
 
   const draw = (side: Side, count: number, revealed: readonly string[], opening: boolean): void => {
     const hand = state.hand[side];
-    hand.count += count;
+    // The opening hand is the one draw whose count is absolute, not additive.
+    hand.count = opening ? count : hand.count + count;
     hand.known.push(...revealed);
-    if (opening) {
-      // Opening hands are the only place the log gives a count before any play.
-      hand.count = Math.max(hand.count, count);
-    }
   };
 
   const playCard = (card: CardRef, zone: CardZone | null, at: EventLocation): void => {
@@ -1140,20 +1169,15 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     }
     const destination = place(from.side, into, [...choices.values()], at);
     if (wasActive) {
-      const activeStates = [...source.variants.values()].map((values) =>
-        values.some((value) => value.zone === "active"));
-      if (activeStates.length > 0 && activeStates.every((hasActive) => !hasActive)) {
+      const states = activeStates(source);
+      if (states.length > 0 && states.every((hasActive) => !hasActive)) {
         // Every variant lost its active body to this evolution.
         state.active[from.side] = destination.id;
-      } else if (!activeStates.every(Boolean)) {
+      } else if (!states.every(Boolean)) {
         // Some variants evolved the active body and some did not.
         state.active[from.side] = null;
       }
     }
-  };
-
-  const handleKnockout = (target: CardRef, at: EventLocation): void => {
-    startKnockout(target, at);
   };
 
   const handleDetach = (
@@ -1169,8 +1193,14 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     const pending = state.pending.get(group.key);
     if (pending !== undefined) {
       if (cards.length > 0) {
-        const filtered = pending.options.filter((option) =>
-          containsAll(pileOf(option.removed), cards));
+        // Exact pile first: D14's strongest evidence. Only when no body's pile
+        // matches exactly do we accept a superset, because the ledger may have
+        // missed an attachment rather than the log being wrong.
+        const exact = pending.options.filter((option) =>
+          sameMultiset(pileOf(option.removed), cards));
+        const filtered = exact.length > 0
+          ? exact
+          : pending.options.filter((option) => containsAll(pileOf(option.removed), cards));
         if (filtered.length > 0) {
           pending.options = filtered;
         } else {
@@ -1187,7 +1217,10 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     }
 
     if (cards.length > 0) {
-      const matches = (value: MaterialValue): boolean => containsAll(pileOf(value), cards);
+      const exactMatches = (value: MaterialValue): boolean => sameMultiset(pileOf(value), cards);
+      const matches = hasMatch(group, exactMatches)
+        ? exactMatches
+        : (value: MaterialValue): boolean => containsAll(pileOf(value), cards);
       if (!hasMatch(group, matches)) {
         diagnose(
           "AttachmentMismatch",
@@ -1239,35 +1272,18 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     const fromGroup = state.groups.get(keyOf(from.side, from.name));
     if (fromGroup === undefined || fromGroup !== state.groups.get(keyOf(to.side, to.name))) {
       if (fromGroup !== undefined) {
-        const exact = (value: MaterialValue): boolean => value.damage >= amount;
-        const exactPossible = hasMatch(fromGroup, exact);
-        if (!exactPossible) {
-          diagnose(
-            "HealOverflow",
-            "warning",
-            `${String(amount)} counters left ${from.name}, which carries less tracked damage`,
-            at,
-            fromGroup,
-          );
-        }
-        applyToAnyMatching(
+        subtractDamage(
           fromGroup,
           at,
-          (value) => (exactPossible ? exact(value) : true),
-          (value) => ({ ...value, damage: Math.max(0, value.damage - amount) }),
+          amount,
+          from.name,
+          `moving ${String(amount)} damage from ${from.name}`,
         );
       }
       const toGroup = state.groups.get(keyOf(to.side, to.name));
       if (toGroup !== undefined) {
-        const lethal = isLethal(events, index, to.side, to.name);
-        applyToAny(toGroup, at, (value) => {
-          const damage = value.damage + amount;
-          return {
-            ...value,
-            damage,
-            hp: lethal ? value.hp : { ...value.hp, min: Math.max(value.hp.min, damage) },
-          };
-        });
+        const lethal = knockoutFollows(events, index, to.side, to.name);
+        applyToAny(toGroup, at, (value) => damageValue(value, amount, lethal));
       }
       return;
     }
@@ -1286,7 +1302,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
       );
       return;
     }
-    const lethal = isLethal(events, index, to.side, to.name);
+    const lethal = knockoutFollows(events, index, to.side, to.name);
     expand(group, at, (values) => {
       const nexts: (readonly MaterialValue[])[] = [];
       values.forEach((source, sourceIndex) => {
@@ -1299,12 +1315,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
           }
           const next = [...values];
           next[sourceIndex] = { ...source, damage: source.damage - amount };
-          const damage = target.damage + amount;
-          next[targetIndex] = {
-            ...target,
-            damage,
-            hp: lethal ? target.hp : { ...target.hp, min: Math.max(target.hp.min, damage) },
-          };
+          next[targetIndex] = damageValue(target, amount, lethal);
           nexts.push(next);
         });
       });
@@ -1314,27 +1325,19 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
 
   events.forEach((event, index) => {
     const at = event.at;
-    switch (event.kind) {
-      case "detach": {
-        const direct = state.pending.get(keyOf(event.body.side, event.body.name));
-        const opposite = state.pending.get(keyOf(otherSide(event.body.side), event.body.name));
-        if (direct !== undefined || opposite !== undefined) {
-          handleDetach(event.body, event.cards, event.count, at);
-          return;
-        }
-        commitAllKnockouts();
+
+    // A detach immediately after a knockout describes the dying body; keep the
+    // pending knockout open so the discard list can filter its options. Every
+    // other event commits the pending first.
+    if (event.kind === "detach") {
+      const direct = state.pending.get(keyOf(event.body.side, event.body.name));
+      const opposite = state.pending.get(keyOf(otherSide(event.body.side), event.body.name));
+      if (direct !== undefined || opposite !== undefined) {
         handleDetach(event.body, event.cards, event.count, at);
         return;
       }
-      case "knockout": {
-        commitAllKnockouts();
-        handleKnockout(event.target, at);
-        return;
-      }
-      default:
-        commitAllKnockouts();
-        break;
     }
+    commitAllKnockouts();
 
     switch (event.kind) {
       case "attach":
@@ -1344,7 +1347,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
         damageGroup(
           event.target,
           event.damage,
-          isLethal(events, index, event.target.side, event.target.name),
+          knockoutFollows(events, index, event.target.side, event.target.name),
           at,
         );
         break;
@@ -1352,7 +1355,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
         damageGroup(
           event.target,
           event.amount,
-          isLethal(events, index, event.target.side, event.target.name),
+          knockoutFollows(events, index, event.target.side, event.target.name),
           at,
         );
         break;
@@ -1360,8 +1363,14 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
       case "evolve":
         evolveGroup(event.kind, event.from, event.into, event.zone, at);
         break;
+      case "detach":
+        handleDetach(event.body, event.cards, event.count, at);
+        break;
       case "draw":
         draw(event.side, event.count, event.revealed, event.opening);
+        break;
+      case "knockout":
+        startKnockout(event.target, at);
         break;
       case "endGame":
       case "endTurn":
@@ -1461,7 +1470,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
       maxMembers: group.maxMembers,
       members: group.members,
       name: group.name,
-      renderVariants: group.saturated ? Math.max(2, renderCount(group)) : renderCount(group),
+      renderVariants: renderCount(group),
       resolvedAt: group.resolvedAt,
       saturated: group.saturated,
       side: group.side,
@@ -1500,46 +1509,5 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     maxRenderVariants: state.maxRenderVariants,
     saturated: groups.some((group) => group.saturated),
     unexecutable,
-  };
-};
-
-/** The three figures, plus the cost metrics the solver will care about. */
-export interface CensusResult {
-  readonly groups: readonly LedgerGroupSnapshot[];
-  readonly liveGroups: readonly LedgerGroupSnapshot[];
-  /** A group forked and collapsed before the end. */
-  readonly confirmedLate: boolean;
-  /** A fork occurred at any point, whether or not it collapsed. */
-  readonly everDivergent: boolean;
-  /** At least one live group still renders more than one picture. */
-  readonly neverConfirmed: boolean;
-  readonly forkEpisodes: number;
-  readonly divergentGroupsAtEnd: number;
-  readonly maxInternalVariants: number;
-  readonly maxRenderVariants: number;
-  readonly saturatedGroups: number;
-  readonly unexecutable: boolean;
-  readonly diagnostics: readonly LedgerDiagnostic[];
-}
-
-/** Run the ledger and reduce it to the figures the audit reports. */
-export const census = (events: readonly GameEvent[], options: LedgerOptions = {}): CensusResult => {
-  const run = runLedger(events, options);
-  const liveDivergent = run.liveGroups.filter((group) => group.renderVariants > 1);
-  const everDivergent = run.groups.some((group) => group.everDivergent);
-  const neverConfirmed = liveDivergent.length > 0;
-  return {
-    confirmedLate: everDivergent && !neverConfirmed,
-    diagnostics: run.diagnostics,
-    divergentGroupsAtEnd: liveDivergent.length,
-    everDivergent,
-    forkEpisodes: run.groups.reduce((total, group) => total + group.forkCount, 0),
-    groups: run.groups,
-    liveGroups: run.liveGroups,
-    maxInternalVariants: run.maxInternalVariants,
-    maxRenderVariants: run.maxRenderVariants,
-    neverConfirmed,
-    saturatedGroups: run.groups.filter((group) => group.saturated).length,
-    unexecutable: run.unexecutable,
   };
 };

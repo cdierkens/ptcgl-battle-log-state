@@ -523,7 +523,7 @@ never recovered" without a report: it is the set of intervals that reach the end
 
 | # | Decision | Why |
 |---|---|---|
-| D1 | Damage is stored on an identity group keyed by `(side, card name, zone)`, not on slots. | The log carries no instance identity; a slot value would be invented. |
+| D1 | Damage is stored on an identity group keyed by `(side, card name)`, with zone carried on each body, not on slots. | The log carries no instance identity and no zone on a damage line; keying by zone would invent the zone the log does not give. Amended after slice 2. |
 | D2 | Slots become distinct instances only when a resolution event forces a split. | Keeps the model as uncertain as the evidence. |
 | D3 | Resolution is deferred; the reconstruction may use the whole log. A greedy per-line commit is not acceptable. | The worked example is unresolvable at 122 and forced at 142. |
 | D4 | HP and attack targetability are solver variables learnt from the log as monotone bounds, not constants that must be shipped. | The log never prints them, but every knockout and every bench hit constrains them; a solver with no card database is weaker, not blind. |

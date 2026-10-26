@@ -44,10 +44,9 @@ export type {
   UnhandledEntry,
 } from "./events.js";
 export { lower, type LowerOptions } from "./lowering.js";
+export { census, type CensusResult } from "./census.js";
 export {
-  census,
   runLedger,
-  type CensusResult,
   type HpInterval,
   type LedgerDiagnostic,
   type LedgerGroupSnapshot,

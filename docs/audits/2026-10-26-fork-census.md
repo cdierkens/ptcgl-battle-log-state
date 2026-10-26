@@ -34,8 +34,8 @@ The three figures partition the executable logs: 81.0% never confirmed, 4.6%
 confirmed late, and 14.4% never forked at all. In bare mode, rarely-sure is the
 common case, not a small residue.
 
-Excluding the 34 logs that hit the variant cap (all of them never-confirmed),
-**298/376 = 79.3%** (74.9–83.0). Saturation is a frontier limit, not a log fact;
+Excluding the 33 logs that hit the variant cap (all of them never-confirmed),
+**299/377 = 79.3%** (74.9–83.1). Saturation is a frontier limit, not a log fact;
 the cap is reported separately rather than hidden in the headline.
 
 The four fixtures are 4/4 never confirmed, 23 fork episodes across 75 groups. The
@@ -69,10 +69,10 @@ under D32.
 | fork episodes | 1,241 |
 | divergent groups at the final prefix | 730 |
 | largest variant set | 4,096 (the cap) |
-| logs at the cap | 34 (8.3%) |
+| logs at the cap | 33 (8.0%) |
 
 The frontier is the cost, not the log length. A 4,096-variant cap keeps a
-pathological group from dominating the run; 34 logs hit it and are counted as
+pathological group from dominating the run; 33 logs hit it and are counted as
 never-confirmed, which is conservative for an upper bound.
 
 ## Diagnostics
@@ -80,15 +80,29 @@ never-confirmed, which is conservative for an upper bound.
 | code | count | what it is |
 |---|---|---|
 | `SideMismatch` | 2,438 | client export names the actor's side for placed counters; resolved by elimination |
-| `BenchOverflow` | 166 | the board is over 5 Bench bodies; a move to a hidden zone has no source, so a body may have stayed |
+| `SideAmbiguous` | 1,746 | the card is on both sides; the ledger uses the side the log named |
+| `KnockoutUnproven` | 413 | no tracked body carried enough damage to explain the knockout; an effect KO, damage lost to a side bug, or a gap |
+| `BenchOverflow` | 167 | the board is over 5 Bench bodies; a move to a hidden zone has no source, so a body may have stayed |
 | `UnknownGroup` | 126 | a named card is not on the board (a Trainer, a body that left, or a card the ledger never saw enter) |
 | `HealOverflow` | 109 | healing or counter movement exceeds tracked damage |
-| `Saturated` | 34 | a group hit the variant cap and is frozen divergent |
+| `Saturated` | 33 | a group hit the variant cap and is frozen divergent |
 | `AttachmentMismatch` | 9 | a discard list matches no possible body's pile |
 | `PrizeOverflow` | 2 | more Prize cards taken than the six-card pool |
 
 None of these is an error. The unexecutable gate is what separates a defect from
 a modelling gap, and it is zero.
+
+`KnockoutUnproven` matters for reading the headline: 413 knockouts (about 23% of
+the 1,811 in the coverage audit) had no tracked body carrying enough damage to
+explain them. The ledger still removes a body — the game did knock something out —
+but it cannot say which one, so the knockout prunes much less than it should.
+Effect knockouts, damage lost to the side bug, and unmodelled sources all land
+here. That is one more reason 81.0% is an upper bound.
+
+`SideAmbiguous` is the mirror-match limitation: 1,746 events name a card that is
+on both sides, and the per-group model cannot fork across sides. The ledger uses
+the side the log named and says so. A full cross-side scenario is part of the
+same format gap as F3.
 
 ## Findings
 
@@ -131,10 +145,10 @@ until the format grows a cross-group scenario. Raised, not worked around.
 
 ### F4 — A move to a hidden zone has no source zone
 
-`Night Stretcher: moved Mega Excadrill ex to hand` is the discard, not the active
-Pokémon. The lowering's `moveCard` says the destination, not the source. Removing
-a board body on that line deletes the active Pokémon on no evidence, so the
-ledger keeps it; that over-counts (166 `BenchOverflow` warnings) and can only
+A card-recovery Trainer prints `moved <card> to hand` whether the card came from
+the discard or the board. `moveCard` records the destination, not the source.
+Removing a board body on that line deletes the active Pokémon on no evidence, so
+the ledger keeps it; that over-counts (167 `BenchOverflow` warnings) and can only
 over-report divergence. The event should carry a source zone, or the lowering
 should distinguish "from the board" from "from a hidden zone", in a follow-up.
 
@@ -163,6 +177,27 @@ a non-English player can close.
 The 1 lower failure is the same truncated export as the coverage audit's F4. It
 is 1 in 411; refusing it is correct, and the tracker should surface it as "could
 not reconstruct" rather than as a crash.
+
+## Deferred by design
+
+- **D25's suffix viability.** The census checks local executability only: a
+  variant that runs the next line survives. It does not re-check the remaining
+  suffix, because that is the full solver's job and this slice is explicitly "no
+  DFS, no backtracking". `unexecutable` here means "undefined on the next line",
+  not "invalid to the end".
+- **Prize reconciliation.** Prize counts are tracked and overflow-checked, but
+  `took N Prize cards` is not reconciled against the knockouts' values. Without
+  card data (a prize value per name) or reliable multi-KO attribution, that would
+  be a guess.
+- **Per-template-key stratification.** The census counts logs, not template keys,
+  and all 411 logs are `en`. A key-level view needs the solver's constraint trace
+  (F9), which v1 defers.
+- **Cross-log HP convergence.** HP is a per-body interval inside one log. Bounds
+  are not aggregated into a card-property table across the corpus; that is the
+  informed run's job.
+- **Cross-side ambiguity.** When both sides have a card of the same name, the
+  ledger uses the side the log named. It cannot represent a fork between the two
+  sides, and it does not invent one.
 
 ## What this audit does not answer
 

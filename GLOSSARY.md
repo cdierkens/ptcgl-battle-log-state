@@ -42,6 +42,29 @@ one of them. This is the figure a corpus audit reports, because it is what a
 viewer sees.
 _Avoid_: whole, certain, settled
 
+**Render-distinct**:
+Two worlds that produce different pictures. A group that reorders identical
+values is not render-distinct; a group whose members carry different damage is.
+_Avoid_: visible, material (material is about downstream dependence, not the
+picture)
+
+**Fork**:
+The moment an identity group first renders more than one picture. A fork is not a
+verdict: later lines can collapse it, and most forks in the census do not collapse
+before the log ends.
+_Avoid_: branch, split (a split is a specific event that removes a body from a
+group)
+
+**Never confirmed**:
+The census headline: a log whose final prefix still has at least one identity
+group rendering more than one picture. A saturated group counts here because its
+variant set was truncated and cannot be decided.
+_Avoid_: unresolved, ambiguous
+
+**Confirmed late**:
+A log that forked and whose every group collapsed before the end.
+_Avoid_: resolved late
+
 **Unexecutable**:
 A prefix where no board survives the log's own constraints. A defect in the
 lowering, the rules, or the client version — never a form of ambiguity.

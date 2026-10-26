@@ -97,7 +97,7 @@ describe("lowering the fixtures", () => {
     expect(lowered.ignored.some((entry) => entry.reason === "restatement")).toBe(true);
   });
 
-  it("carries the printed breakdown and reconciles it with the total", () => {
+  it("carries the printed breakdown as data", () => {
     const lowered = lowerFixture("dipplin-vs-mega-excadrill");
     const wave = damages(lowered.events).find(
       (event) => event.attack === "Do the Wave" && event.target.name === "Mega Excadrill ex",
@@ -110,6 +110,8 @@ describe("lowering the fixtures", () => {
       "5 Benched Pokémon",
       "Resistance to Grass",
     ]);
+    // Carried as printed. Nothing asserts that these lines add up: real
+    // breakdowns repeat components and some hits legitimately carry 0.
     expect(wave?.breakdown?.reduce((sum, line) => sum + line.amount, 0)).toBe(180);
   });
 

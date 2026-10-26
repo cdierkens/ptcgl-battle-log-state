@@ -671,13 +671,10 @@ const IGNORE_BY_KEY: Readonly<Map<string, IgnoreReason>> = new Map(
 
 const BREAKDOWN_LINE = /^(?<label>.*?):\s*(?<amount>-?\d+)\s+damage$/u;
 
-/** Parse a printed breakdown, and check that it sums to the printed total. */
+/** Parse a printed breakdown, and attach it to the damage event it explains. */
 const applyBreakdown = (
   events: readonly GameEvent[],
   subString: string,
-  location: EventLocation,
-  raw: string,
-  diagnostics: LoweringDiagnostic[],
 ): readonly GameEvent[] => {
   const lines: BreakdownLine[] = [];
   for (const line of subString.split(/\r?\n/u)) {
@@ -697,22 +694,15 @@ const applyBreakdown = (
     return events;
   }
 
-  // Some breakdowns enumerate every component; some print only the modifiers
-  // ("Resistance to Fighting: -30 damage"), and some print a total beside an
-  // incomplete list. So completeness cannot be assumed, and the only sound check
-  // is impossibility: additive components cannot sum to more than the whole.
-  const total = lines.find((line) => line.amount === target.amount);
-  const components = total === undefined ? lines : lines.filter((line) => line !== total);
-  const sum = components.reduce((running, line) => running + line.amount, 0);
-  if (components.length > 0 && sum > target.amount) {
-    diagnostics.push({
-      at: location,
-      code: "BreakdownMismatch",
-      message: `breakdown components sum to ${sum}, which exceeds the printed total ${target.amount}`,
-      raw,
-    });
-  }
-
+  // The breakdown is carried as printed and never reconciled.
+  //
+  // Two attempts at checking it failed against real data. Requiring the
+  // components to sum to the total flagged honest partials (beedrill prints one
+  // `150` weakness clause beside a `300` total). Requiring only that they not
+  // exceed the total flagged duplicated component lines — `Base 60, Damage 170,
+  // Damage 170, Total 230` repeats a component — and events that legitimately
+  // carry `0`. What remains is prose with a shape we cannot test
+  // locale-independently, so it is data, not a claim.
   const merged: GameEvent = { ...target, breakdown: lines };
   return events.map((event, position) => (position === index ? merged : event));
 };
@@ -898,7 +888,7 @@ export const lower = (
 
       const breakdown = breakdownOf(main);
       if (breakdown !== null) {
-        produced = applyBreakdown(produced, breakdown, location, main.event.raw, diagnostics);
+        produced = applyBreakdown(produced, breakdown);
       }
 
       for (const event of produced) {

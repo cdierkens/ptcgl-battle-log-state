@@ -117,22 +117,23 @@ to the printed total:
 173     • Resistance to Grass: -30 damage
 ```
 
-`30 + 80 + 100 − 30 = 180`. Free self-validation — but only of the weak kind. The
-fixtures also contain partial breakdowns:
+`30 + 80 + 100 − 30 = 180`. Tempting to use as a self-check, and wrong to. The
+fixtures and then 28 corpus hits showed the breakdown is not a sum:
 
 ```text
-breakdown: "Resistance to Fighting: -30 damage"              -- Mirage Barrage, total 90
-breakdown: "Weakness to Fighting: 150" + "Total damage: 300" -- bare 150 unexplained
+Mirage Barrage   (total  90): Resistance to Fighting −30
+Bare  150 explained          (total 300): Weakness to Fighting 150, Total 300
+Gale Thrust      (total 230): Base 60, Damage 170, Damage 170, Total 230
+Greedy Fang      (total   0): Base 70, Total 0
 ```
 
-The second one rules out the obvious check. A printed total does not imply a
-complete list, so demanding that the components *equal* the total flags honest
-partials. What survives is impossibility: additive components cannot sum to more
-than the whole. That catches a misparse or a client quirk without demanding
-accounting the log never promised.
+One is partial, one repeats a component, one has a `Total` that is zero while its
+base is not. Equality and upper-bound rules each failed on a different row. So the
+breakdown is carried as printed and asserted against nothing — it is provenance
+for a human reading a log, not an invariant a machine can hold.
 
-Prize counts (`cdierkens took 3 Prize cards`) are the same kind of check on a
-knockout's value.
+Prize counts (`cdierkens took 3 Prize cards`) are a different matter: that is a
+number the game states once, and it stays a check on a knockout's value.
 
 ### A third trap: the apostrophe downgrade
 
@@ -544,7 +545,7 @@ never recovered" without a report: it is the set of intervals that reach the end
 | D19 | A lowering pass maps every template key to a typed event; the solver never reads `templateKey`, `groups`, or prose. | Placeholder names differ per template and change with the client; the solver needs one vocabulary. |
 | D20 | The lowering table is total — an unknown key becomes an explicit `unhandled` and fails a completeness test. | The key set is outside the parser's promise; a dropped key is a silently missing constraint. |
 | D21 | A sub-entry attack that repeats a main-entry attack in the same phase is a restatement and is collapsed. Secondary damage has no attacker and is never collapsed. | The fixtures contain both: a repeated Do the Wave, and two identical `Weedle took 110 damage` lines that are two different cards. |
-| D22 | A breakdown is checked only for impossibility: its listed components may not exceed the printed total. | A printed total does not imply a complete list — beedrill prints one `150` clause beside a `300` total — so equality would flag honest partials. |
+| D22 | A damage breakdown is carried as printed and never reconciled. | Two arithmetic rules failed against real data: equality flagged honest partials, and an upper bound flagged duplicated component lines and legitimate 0-damage hits. It is provenance, not a claim. |
 | D23 | The lowered log is interpreted as a program: events are partial, nondeterministic state transitions, and undefinedness is what prunes. | The game executed the program, so no true state can be undefined on it. This replaces "guess and check" with a semantics. |
 | D24 | Each prefix is reported as whole, divergent, or unexecutable; a divergent prefix is never collapsed. | Invalidation is the mechanism, divergence is the residue; only the second is a UI fact and only the third is a defect. |
 | D25 | Validity is viability of the remaining suffix, not local executability. | A state that runs the next line and dies three lines later was never valid. |

@@ -87,17 +87,19 @@ this audit cannot close it. The parser's own README makes the same complaint
 about its fixtures. Non-English logs remain the gap that only a non-English
 player can close.
 
-### F3 — 28 breakdowns list components that exceed their own total
+### F3 — withdrawn: breakdowns are not arithmetic
 
-28 damage events print a breakdown whose listed components add up to more than the
-`Total damage:` line beside them — impossible for additive components. This is the
-stronger form of an earlier finding: the first rule demanded that components
-*equal* the total, which flagged any partial breakdown (beedrill prints a single
-`150` weakness clause against a `300` total). Requiring equality assumed
-completeness; requiring only that the parts not exceed the whole does not.
+An earlier version of this audit reported 28 damage events whose breakdown
+components exceeded the printed total, and a rule was written to catch them. It
+was withdrawn after reading them: the breakdowns repeat components
+(`Base 60, Damage 170, Damage 170, Total 230`), print partials beside a total
+(`Weakness 150` against `300`), and sometimes carry `0` legitimately
+(`Base 70, Total 0`). No locale-independent arithmetic survives that, so the
+breakdown is now carried as printed and asserted against nothing.
 
-28 remain. Unread for now; worth a look before the breakdown is used as a check
-anywhere, since each one is either a misparse or a client-rendering quirk.
+This is a finding about the *check*, not the corpus: two successive rules were
+falsified by the same data, and the honest conclusion is that a breakdown is
+provenance rather than an invariant.
 
 ### F4 — one log has no turn header
 

@@ -252,7 +252,7 @@ export interface UnhandledEntry {
 
 /** A line that should have produced an event but could not be lowered. */
 export interface LoweringDiagnostic {
-  readonly code: "MissingPlaceholder" | "UnresolvedSide" | "BadNumber" | "BreakdownMismatch";
+  readonly code: "MissingPlaceholder" | "UnresolvedSide" | "BadNumber";
   readonly at: EventLocation;
   readonly message: string;
   readonly raw: string;

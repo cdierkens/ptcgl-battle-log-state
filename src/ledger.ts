@@ -93,6 +93,8 @@ export interface LedgerGroupSnapshot {
   readonly hp: readonly HpInterval[];
   /** The distinct Active/Bench splits among the group's variants. */
   readonly zoneCounts: readonly { readonly active: number; readonly bench: number }[];
+  /** Which value dimensions differ among the group's variants. */
+  readonly varying: readonly ("zone" | "damage" | "attachments" | "under")[];
 }
 
 /** The result of one ledger pass. */
@@ -1444,6 +1446,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
   const snapshot = (group: MutableGroup): LedgerGroupSnapshot => {
     const hp = new Map<string, HpInterval>();
     const zones = new Map<string, { readonly active: number; readonly bench: number }>();
+    const variants = [...group.variants.values()];
     for (const values of group.variants.values()) {
       const active = values.filter((value) => value.zone === "active").length;
       zones.set(`${String(active)}|${String(values.length - active)}`, {
@@ -1455,6 +1458,16 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
           `${String(value.hp.min)}|${value.hp.max === null ? "inf" : String(value.hp.max)}`,
           value.hp,
         );
+      }
+    }
+    const varying: ("zone" | "damage" | "attachments" | "under")[] = [];
+    for (const dimension of ["zone", "damage", "attachments", "under"] as const) {
+      const shapes = new Set(
+        variants.map((values) =>
+          values.map((value) => JSON.stringify(value[dimension])).sort().join("|")),
+      );
+      if (shapes.size > 1) {
+        varying.push(dimension);
       }
     }
     return {
@@ -1474,6 +1487,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
       resolvedAt: group.resolvedAt,
       saturated: group.saturated,
       side: group.side,
+      varying,
       zoneCounts: [...zones.values()].sort((left, right) =>
         left.active - right.active || left.bench - right.bench),
     };

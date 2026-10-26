@@ -39,6 +39,29 @@ Excluding the 33 logs that hit the variant cap (all of them never-confirmed),
 **299/377 = 79.3%** (74.9–83.1). Saturation is a frontier limit, not a log fact;
 the cap is reported separately rather than hidden in the headline.
 
+### How to read 81%
+
+The headline is **per log**, not per group. At the final prefix, **730 of 3,127
+live groups are divergent (23.3%)**; the other 76.7% are confirmed. An executable
+log has about 7.6 live groups on average, so one residual group is enough to fail
+the headline.
+
+| | |
+|---|---|
+| live groups at the final prefix | 3,127 |
+| divergent live groups | 730 (23.3%) |
+| divergent live groups with one member | 348 (47.7% of divergent) |
+| never-confirmed logs with exactly one divergent group | 100 (30.1% of never-confirmed) |
+| never-confirmed logs with more than one | 232 (69.9%) |
+
+The singleton number is the late-split shape: the body is known, but the damage
+or attachments it inherited from an earlier group are not. That is still a
+different picture, so it counts, but it is not "we do not know which card this
+is."
+
+Divergence is carried by damage (518 groups), attachments (394), and the
+evolution stack (6); the counts are dimension-wise and overlap.
+
 The four fixtures are 4/4 never confirmed, 23 fork episodes across 75 groups. The
 froslass worked example stays a fork: the Slowpoke/Slowking split is exactly the
 ambiguity card data collapses, and bare mode must not.
@@ -66,9 +89,10 @@ under D32.
 
 | | |
 |---|---|
-| groups censused | 6,185 |
-| fork episodes | 1,241 |
-| divergent groups at the final prefix | 730 |
+| groups censused (including ones that left) | 6,185 |
+| fork episodes | 1,243 |
+| live groups at the final prefix | 3,127 |
+| divergent groups at the final prefix | 730 (23.3%) |
 | largest variant set | 4,096 (the cap) |
 | logs at the cap | 33 (8.0%) |
 

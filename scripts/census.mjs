@@ -23,15 +23,20 @@ export const createCensusAudit = () => ({
   everDivergent: 0,
   forkEpisodes: 0,
   groups: 0,
+  liveGroupsAtEnd: 0,
   locales: new Map(),
   logs: 0,
   lowerFailures: 0,
   maxInternalVariants: 0,
   maxRenderVariants: 0,
   neverConfirmed: 0,
+  neverConfirmedMultiGroup: 0,
+  neverConfirmedSingleGroup: 0,
   parseFailures: 0,
   saturatedLogs: 0,
   saturatedNeverConfirmed: 0,
+  singletonDivergentGroups: 0,
+  varying: new Map(),
   unexecutable: 0,
 });
 
@@ -65,6 +70,23 @@ export const censusLog = (audit, raw) => {
 
   const result = census(lowered.value.events);
   audit.groups += result.groups.length;
+  audit.liveGroupsAtEnd += result.liveGroups.length;
+  const divergent = result.liveGroups.filter((group) => group.renderVariants > 1);
+  if (result.neverConfirmed) {
+    if (divergent.length === 1 && result.saturatedGroupsAtEnd === 0) {
+      audit.neverConfirmedSingleGroup += 1;
+    } else {
+      audit.neverConfirmedMultiGroup += 1;
+    }
+  }
+  for (const group of divergent) {
+    for (const dimension of group.varying) {
+      bump(audit.varying, dimension);
+    }
+    if (group.members === 1) {
+      audit.singletonDivergentGroups += 1;
+    }
+  }
   for (const diagnostic of result.diagnostics) {
     bump(audit.diagnostics, diagnostic.code);
   }
@@ -134,6 +156,7 @@ export const toJson = (audit) => {
     everDivergent: audit.everDivergent,
     forkEpisodes: audit.forkEpisodes,
     groups: audit.groups,
+    liveGroupsAtEnd: audit.liveGroupsAtEnd,
     locales: Object.fromEntries(sorted(audit.locales)),
     logs: audit.logs,
     logsCensused: audit.logs - audit.parseFailures - audit.lowerFailures,
@@ -144,10 +167,14 @@ export const toJson = (audit) => {
     maxInternalVariants: audit.maxInternalVariants,
     maxRenderVariants: audit.maxRenderVariants,
     neverConfirmed: audit.neverConfirmed,
+    neverConfirmedMultiGroup: audit.neverConfirmedMultiGroup,
+    neverConfirmedSingleGroup: audit.neverConfirmedSingleGroup,
     neverConfirmedUnsaturated,
     saturatedLogs: audit.saturatedLogs,
     saturatedNeverConfirmed: audit.saturatedNeverConfirmed,
+    singletonDivergentGroups: audit.singletonDivergentGroups,
     unexecutable: audit.unexecutable,
+    varying: Object.fromEntries(sorted(audit.varying)),
     wilson: {
       confirmedLate: wilson(audit.confirmedLate, executable),
       everDivergent: wilson(audit.everDivergent, executable),
@@ -188,12 +215,24 @@ export const formatReport = (audit) => {
   push(`  max render variants   ${report.maxRenderVariants}`);
   push(`  max internal variants ${report.maxInternalVariants}`);
   push(`  logs saturated        ${report.saturatedLogs}`);
-  push(`  divergent groups/end  ${report.divergentGroupsAtEnd}`);
+  push(`  live groups at end     ${report.liveGroupsAtEnd}`);
+  push(`  divergent groups/end  ${report.divergentGroupsAtEnd} (${percent(report.divergentGroupsAtEnd / Math.max(1, report.liveGroupsAtEnd))} of live groups)`);
+  push(`  singleton divergent   ${report.singletonDivergentGroups}`);
+  push(`  never-confirmed, one  ${report.neverConfirmedSingleGroup}`);
+  push(`  never-confirmed, many ${report.neverConfirmedMultiGroup}`);
 
   push();
   push("locales");
   for (const [locale, count] of Object.entries(report.locales)) {
     push(`  ${locale.padEnd(6)} ${String(count).padStart(6)}`);
+  }
+
+  if (Object.keys(report.varying).length > 0) {
+    push();
+    push("divergent groups by varying dimension");
+    for (const [dimension, count] of Object.entries(report.varying)) {
+      push(`  ${dimension.padEnd(20)} ${String(count).padStart(7)}`);
+    }
   }
 
   if (Object.keys(report.diagnostics).length > 0) {

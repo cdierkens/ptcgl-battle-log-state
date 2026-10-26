@@ -22,6 +22,7 @@ and [`docs/specs/2026-10-25-state-format.md`](docs/specs/2026-10-25-state-format
 - `docs/specs/` — the package's contract and design. Approved.
 - `docs/adr/` — decisions that bind new work.
 - `docs/audits/` — dated measurements, with the method and the numbers. The specs cite the latest.
+- `docs/prompts/` — task briefs for a fresh session. They exist so a long build can be resumed without the transcript.
 
 ## Constraints
 

@@ -2,8 +2,9 @@
 
 Date: 2026-10-26
 Scope: slice 2 — the board ledger and the fork census
-Solver: `@dierkens.dev/ptcgl-battle-log-state` at `d972537` (0.1.0 plus
-unreleased ledger, census, and lowering fixes)
+Solver: `@dierkens.dev/ptcgl-battle-log-state` at `064ac66` (0.1.0 plus the
+unreleased ledger, census, and lowering fixes). Later commits to this note are
+documentation only.
 Corpus: 411 games across 5 workspaces, Firestore `workspaces/*/games/*.rawLog`
 
 ## Method

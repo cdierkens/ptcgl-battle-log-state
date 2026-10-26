@@ -55,6 +55,7 @@
     "test:unit": "vitest run",
     "test:coverage": "vitest run --coverage",
     "audit:fixtures": "pnpm run build && node scripts/audit-fixtures.mjs",
+    "census:fixtures": "pnpm run build && node scripts/census-fixtures.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "verify": "pnpm run typecheck && pnpm run lint && pnpm run test:coverage && pnpm run build",

@@ -285,17 +285,37 @@ const play =
   ];
 
 /** A move whose line names only the actor: `[player] shuffled [card] into their deck`. */
-const moveOwnTo =
-  (to: MoveTarget): Handler =>
-  (input) => [
-    { at: at(input), card: card(input, "playerName", "cardName"), kind: "moveCard", to },
-  ];
+const moveOwnTo = (to: MoveTarget): Handler => moveCards(to, "playerName");
 
-const moveTo =
-  (to: MoveTarget): Handler =>
-  (input) => [
-    { at: at(input), card: card(input, "targetPlayerName", "cardName"), kind: "moveCard", to },
-  ];
+const moveTo = (to: MoveTarget): Handler => moveCards(to, "targetPlayerName");
+
+/**
+ * A move that may name one card or a count phrase with the real names in the
+ * sub-entry.
+ *
+ * `[player] shuffled 2 cards into their deck` is the count; the `•` list under
+ * it names them. Taking the count phrase as the card is how a Pokémon that left
+ * the board stays on it, so the list wins whenever the log printed one. With no
+ * list, the placeholder is carried verbatim — a phantom name is honest, a made
+ * up one is not (D35).
+ */
+const moveCards =
+  (to: MoveTarget, owner: "playerName" | "targetPlayerName"): Handler =>
+  (input) => {
+    const side = player(input, owner);
+    const names = splitCardList(input.subString);
+    if (names.length > 0) {
+      return names.map((name) => ({
+        at: at(input),
+        card: { name, side },
+        kind: "moveCard",
+        to,
+      }));
+    }
+    return [
+      { at: at(input), card: { name: need(input, "cardName"), side }, kind: "moveCard", to },
+    ];
+  };
 
 /**
  * `"[player] discarded [card]"` names only the actor, not a target owner.
@@ -303,9 +323,7 @@ const moveTo =
  * It is the same five words for the board and the hand, distinguished only by
  * template key, which is exactly the sort of thing the table exists to record.
  */
-const discardOwn: Handler = (input) => [
-  { at: at(input), card: card(input, "playerName", "cardName"), kind: "moveCard", to: "discard" },
-];
+const discardOwn: Handler = moveCards("discard", "playerName");
 
 /** Zones a `move_to_*` line can name. */
 type MoveTarget = "active" | "bench" | "deck" | "discard" | "hand" | "lost" | "prizes" | "stadium";
@@ -542,12 +560,17 @@ export const MAPPED: Readonly<Record<string, Handler>> = {
     modifiers: [WEAKNESS, RESISTANCE],
     target: "targetPokemonCardName",
   }),
+  // The template reads `[targetCardName] was switched with [sourceCardName] to
+  // become the Active Pokémon`, and the line after it names the first card as
+  // the new Active. So `target` is the incoming body and `source` the outgoing
+  // one — the opposite of the words' usual meaning, and the reason the mapping
+  // is explicit rather than inferred from placeholder names.
   blog_loc_switched_active: (input) => [
     {
       at: at(input),
-      incoming: card(input, "sourcePlayerName", "sourceCardName"),
+      incoming: card(input, "targetPlayerName", "targetCardName"),
       kind: "switchActive",
-      outgoing: card(input, "targetPlayerName", "targetCardName"),
+      outgoing: card(input, "sourcePlayerName", "sourceCardName"),
     },
   ],
   blog_loc_took_prize_cards: (input) => [

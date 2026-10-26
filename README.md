@@ -10,9 +10,10 @@ damage line says *which name*, not *which body*. This package reconstructs what
 the log actually supports, in a form where a **set of possibilities cannot be
 mistaken for a fact**.
 
-> **Status: pre-release.** The lowering pass and the document validator ship. The
-> solver and the corpus measurement are next. See
-> [the design spec](./docs/specs/2026-10-25-duplicate-card-identity.md).
+> **Status: pre-release.** The lowering pass, the document validator, the board
+> ledger, and the fork census ship. `reconstruct()` and the full solver are next.
+> See [the design spec](./docs/specs/2026-10-25-duplicate-card-identity.md) and
+> the [first census](./docs/audits/2026-10-26-fork-census.md).
 
 ## Install
 
@@ -60,6 +61,34 @@ if (isErr(result)) {
 that a `divergent` document actually diverges, and that a slot inside a group
 does not smuggle in a value the group was supposed to hold. Those invariants are
 why it exists — a schema-valid document can still be a lie.
+
+## The ledger and the census
+
+`runLedger(events)` walks the lowered event stream and keeps one **identity
+group** per `(side, card name)`. A group holds the distinct value multisets its
+bodies can have — zone, damage, attachments — so permutations are never
+enumerated. `census(events)` reduces that to three figures:
+
+```ts
+import { census, lower } from "@dierkens.dev/ptcgl-battle-log-state";
+
+const lowered = lower(battleLog, rawText);
+if (lowered.ok) {
+  const result = census(lowered.value.events);
+  result.neverConfirmed;  // a live group still renders more than one picture
+  result.everDivergent;   // a fork happened at some point
+  result.confirmedLate;   // a fork happened, but every group collapsed
+}
+```
+
+The census is **not** the full solver: it is a forward pass with no
+backtracking, and it drops cross-group correlation when a body leaves a group.
+Both choices can only over-report divergence, which is the direction an
+upper-bound measurement needs. Card HP is learnt per body from survivals and
+knockouts; `census(events, { hp: (name) => number | null })` is the seam for an
+informed run with card data.
+
+`pnpm run census:fixtures` runs the same aggregation over the committed logs.
 
 ## Divergence is stored per group
 

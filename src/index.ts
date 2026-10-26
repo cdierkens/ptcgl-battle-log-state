@@ -45,6 +45,17 @@ export type {
 } from "./events.js";
 export { lower, type LowerOptions } from "./lowering.js";
 export {
+  census,
+  runLedger,
+  type CensusResult,
+  type HpInterval,
+  type LedgerDiagnostic,
+  type LedgerGroupSnapshot,
+  type LedgerOptions,
+  type LedgerRun,
+  type MaterialValue,
+} from "./ledger.js";
+export {
   err,
   isErr,
   isOk,

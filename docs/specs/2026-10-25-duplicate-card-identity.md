@@ -560,6 +560,26 @@ never recovered" without a report: it is the set of intervals that reach the end
 | D34 | Rates carry `n` and a 95% Wilson interval; results live in dated `docs/audits/` notes with the solver commit. | Point estimates get quoted forever as though they were facts. |
 | D35 | Card names are recorded verbatim, including count phrases such as `2 cards`. | The lowering does not interpret names. A phantom name the solver cannot match is honest; a guessed card name is not, and the phrase is localized. |
 
+## Post-approval findings (2026-10-26, slice 2)
+
+**The group key is `(side, card name)`, with zone on the body.** D1 says
+`(side, card name, zone)`, but a damage line carries no zone: a name present in
+both the Active Spot and the Bench cannot be assigned to one zone key without
+inventing one. The ledger groups by `(side, card name)` and carries `zone` on
+each member; the document's `IdentityGroup` already has no zone field. D1's
+wording should be read that way until it is amended.
+
+**A split is not representable in `ptcgl-state/1`.** F5's invariant says every
+candidate of a group carries the same multiset. That covers permutations inside
+one group, not the case where a body *leaves* a group — an evolution, a retreat
+among same-name copies, or a knockout — and the surviving group's multiset
+depends on which body left. The worked froslass example is exactly that shape:
+after `Slowpoke → Slowking`, the Slowking and the surviving Slowpoke are separate
+groups, and each slot outside a group must carry its own damage. The census
+measures the ambiguity; `reconstruct()` cannot emit it until the format grows a
+cross-group scenario (or candidates that span groups). Raised here, not worked
+around.
+
 ## Open questions
 
 The design answers are settled (grilled 2026-10-26). Two remain, and both belong

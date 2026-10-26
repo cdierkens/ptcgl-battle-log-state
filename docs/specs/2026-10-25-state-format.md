@@ -210,6 +210,26 @@ card-data defect reported at its own line.
 - **Omitting `determinacy`** and letting consumers check `candidates.length`.
   Rejected on R1: the failure mode is silent.
 
+## Post-approval findings (2026-10-26, slice 2)
+
+**A split is not representable.** F5's same-multiset invariant covers
+permutations within one group. It does not cover a body leaving a group — an
+evolution, a retreat among same-name copies, or a knockout — where the surviving
+groups' multisets are correlated. The worked froslass example is the proof: after
+`Slowpoke → Slowking`, the question is whether the Slowking or the surviving
+Slowpoke carries 30 damage, and no `ptcgl-state/1` document with `slots` +
+`groups` can say both. The census ([2026-10-26](docs/audits/2026-10-26-fork-census.md))
+measures it; `reconstruct()` stays out of scope until the format grows a
+cross-group scenario.
+
+**A move to a hidden zone has no source zone.** `moveCard` says the destination,
+not whether the card came from the board or the discard. `Night Stretcher: moved
+Mega Excadrill ex to hand` is the discard, not the active Pokémon. The ledger
+keeps the body rather than deleting it on no evidence, and reports the
+over-count; the event should carry a source zone (or the lowering should
+distinguish the two templates) in a follow-up. The census is
+[2026-10-26](../audits/2026-10-26-fork-census.md).
+
 ## Open questions
 
 Settled at grilling (2026-10-26): snapshot caching (F3), group provenance (F9),

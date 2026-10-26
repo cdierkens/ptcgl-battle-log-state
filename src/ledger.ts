@@ -3,10 +3,10 @@
  *
  * The log names cards, never instances, so the ledger keeps an **identity
  * group** per `(side, card name)` and stores the possible **value multisets**
- * of its members. A value is `{ zone, damage, attachments, hp }`. Two variants
- * that are permutations of one multiset are one picture (D31), so the ledger
- * never enumerates permutations — a group of six costs combinations of values,
- * not a factorial.
+ * of its members. A value is `{ zone, damage, attachments, under, hp }`. Two
+ * variants that are permutations of one multiset are one picture (D31), so the
+ * ledger never enumerates permutations — a group of six costs combinations of
+ * values, not a factorial.
  *
  * Where a value *leaves* a group (evolve, retreat, knockout, discard) the
  * remaining multiset depends on which body left. The ledger keeps every
@@ -77,7 +77,7 @@ export interface LedgerGroupSnapshot {
   readonly members: number;
   /** The most bodies the group ever held, including ones that later left. */
   readonly maxMembers: number;
-  /** Distinct assignments, including ones that render identically. */
+  /** Distinct internal value multisets, including ones that differ only in HP. */
   readonly internalVariants: number;
   /** Distinct pictures: value multisets. This is the census's figure. */
   readonly renderVariants: number;

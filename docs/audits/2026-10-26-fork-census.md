@@ -1,0 +1,191 @@
+# Audit: the first fork census
+
+Date: 2026-10-26
+Scope: slice 2 — the board ledger and the fork census
+Solver: `@dierkens.dev/ptcgl-battle-log-state` at `d972537` (0.1.0 plus
+unreleased ledger, census, and lowering fixes)
+Corpus: 411 games across 5 workspaces, Firestore `workspaces/*/games/*.rawLog`
+
+## Method
+
+Read-only. `pokedojo.pro/scripts/audit-battle-log-census.mjs` walks every
+workspace's `games` subcollection, runs `detectBattleLogLanguage` →
+`parseBattleLog` → `lower` → `census`, and prints counts. It writes nothing, and
+no battle log leaves Firestore: the report contains counts and rates, never text.
+The same aggregation runs over the four committed fixtures via
+`pnpm run census:fixtures`, so the method is reproducible without the corpus.
+
+411 games in about 28 seconds in one process, sequentially.
+
+## Headline
+
+**81.0% of executable logs never confirm a board** (332/410, 95% Wilson
+76.9–84.5). The census is a bare-mode **upper bound**: no card data, no
+backtracking, and cross-group correlation is dropped when a body leaves a group.
+The true bare rate is lower; the informed rate is unmeasured.
+
+| Figure | Meaning | Result |
+|---|---|---|
+| **Never confirmed** | a live group still renders ≥2 pictures at the final prefix | **332/410 = 81.0%** (76.9–84.5) |
+| Ever divergent | a fork occurred at any point | 351/410 = 85.6% (81.9–88.7) |
+| Confirmed late | forked, but every group collapsed before the end | 19/410 = 4.6% (3.0–7.1) |
+
+The three figures partition the executable logs: 81.0% never confirmed, 4.6%
+confirmed late, and 14.4% never forked at all. In bare mode, rarely-sure is the
+common case, not a small residue.
+
+Excluding the 34 logs that hit the variant cap (all of them never-confirmed),
+**298/376 = 79.3%** (74.9–83.0). Saturation is a frontier limit, not a log fact;
+the cap is reported separately rather than hidden in the headline.
+
+The four fixtures are 4/4 never confirmed, 23 fork episodes across 75 groups. The
+froslass worked example stays a fork: the Slowpoke/Slowking split is exactly the
+ambiguity card data collapses, and bare mode must not.
+
+## Unexecutable is a gate, and it is zero
+
+| | |
+|---|---|
+| logs scanned | 411 |
+| parsed | 411 |
+| lowered | 410 (1 log has no turn header — the F4 of the coverage audit) |
+| executable | 410 |
+| **unexecutable** | **0** |
+
+The gate was 29/410 before the ledger resolved a client-export defect. The corpus
+contains 2,438 counter placements that name the **acting player's** side, not the
+target's (`… put damage counters on <actor>'s <card>` while the card is on the
+other side). The game has two sides and the card is only on the other one, so the
+target is forced by elimination. The ledger resolves it, emits a `SideMismatch`
+diagnostic, and counts the correction instead of treating the log as corrupt.
+Without that, 29 logs had an undefined event and the audit was untrustworthy
+under D32.
+
+## Cost
+
+| | |
+|---|---|
+| groups censused | 6,185 |
+| fork episodes | 1,241 |
+| divergent groups at the final prefix | 730 |
+| largest variant set | 4,096 (the cap) |
+| logs at the cap | 34 (8.3%) |
+
+The frontier is the cost, not the log length. A 4,096-variant cap keeps a
+pathological group from dominating the run; 34 logs hit it and are counted as
+never-confirmed, which is conservative for an upper bound.
+
+## Diagnostics
+
+| code | count | what it is |
+|---|---|---|
+| `SideMismatch` | 2,438 | client export names the actor's side for placed counters; resolved by elimination |
+| `BenchOverflow` | 166 | the board is over 5 Bench bodies; a move to a hidden zone has no source, so a body may have stayed |
+| `UnknownGroup` | 126 | a named card is not on the board (a Trainer, a body that left, or a card the ledger never saw enter) |
+| `HealOverflow` | 109 | healing or counter movement exceeds tracked damage |
+| `Saturated` | 34 | a group hit the variant cap and is frozen divergent |
+| `AttachmentMismatch` | 9 | a discard list matches no possible body's pile |
+| `PrizeOverflow` | 2 | more Prize cards taken than the six-card pool |
+
+None of these is an error. The unexecutable gate is what separates a defect from
+a modelling gap, and it is zero.
+
+## Findings
+
+### F1 — Bare mode does not support "most logs collapse"
+
+The design's hypothesis was that most logs settle to one board and a small
+fraction never do. In bare mode the opposite holds: 85.6% fork, and 81.0% never
+collapse. The gap is the price of shipping no card database:
+
+- a damage line carries no zone, so a name present in both the Active Spot and
+  the Bench is ambiguous even when the attack could only hit one of them;
+- an attach line names the card, not the body, so two copies are ambiguous until
+  a discard list or a knockout separates them;
+- an evolution is ambiguous until the log proves which body carried what.
+
+Card data collapses all three: HP bounds identify which body could have died,
+and attack targetability prunes the Bench. The informed run is the next
+measurement, and its delta decides whether the zero-dependency posture is
+affordable (D33). This audit cannot quote the delta.
+
+### F2 — The group key is `(side, card name)`, not `(side, card name, zone)`
+
+D1 keys groups by zone, but a damage line does not carry one. Assigning a
+damage line to one zone key would invent the zone the spec says the log does not
+give. The ledger groups by `(side, card name)` and carries `zone` on each body;
+the document's `IdentityGroup` already has no zone field. This keeps the group's
+candidates checkable and is the only form the current format can hold. D1's
+wording should be amended.
+
+### F3 — A split is not representable in `ptcgl-state/1`
+
+F5 requires every candidate of a group to carry the same multiset. That covers
+permutations inside one group; it cannot express a body leaving a group (an
+evolution, a retreat among same-name copies, or a knockout) where the surviving
+groups' multisets are correlated. The froslass example is the proof: after
+`Slowpoke → Slowking`, "the Slowking has 30" and "the Slowpoke has 30" are two
+documents the format cannot write, because each slot outside a group carries its
+own damage. The census measures the ambiguity; `reconstruct()` cannot emit it
+until the format grows a cross-group scenario. Raised, not worked around.
+
+### F4 — A move to a hidden zone has no source zone
+
+`Night Stretcher: moved Mega Excadrill ex to hand` is the discard, not the active
+Pokémon. The lowering's `moveCard` says the destination, not the source. Removing
+a board body on that line deletes the active Pokémon on no evidence, so the
+ledger keeps it; that over-counts (166 `BenchOverflow` warnings) and can only
+over-report divergence. The event should carry a source zone, or the lowering
+should distinguish "from the board" from "from a hidden zone", in a follow-up.
+
+### F5 — Two lowering bugs the ledger exposed
+
+- **Switch placeholders were reversed.** `blog_loc_switched_active`'s
+  `targetCardName` is the card that becomes Active and `sourceCardName` is the
+  one that leaves. The lowering had them the other way round, so the ledger moved
+  the wrong bodies.
+- **Count phrases swallowed card lists.** `move_to_*`, `shuffled_*`, and
+  `discarded_*` lines carry `2 cards` in the placeholder and the real names in
+  the `•` list. Taking the phrase as the card left bodies on the board under a
+  phantom name. The lowering now emits one `moveCard` per named card.
+
+Both are fixed with tests. Neither is a parser change: the parser was faithful
+to the templates.
+
+### F6 — The corpus is single-locale
+
+All 411 logs detect as `en`. The localized card-list splitter is still
+unvalidated, and this audit cannot close it. Non-English logs remain the gap only
+a non-English player can close.
+
+### F7 — One log has no turn header
+
+The 1 lower failure is the same truncated export as the coverage audit's F4. It
+is 1 in 411; refusing it is correct, and the tracker should surface it as "could
+not reconstruct" rather than as a crash.
+
+## What this audit does not answer
+
+- **The informed delta.** No card HP or targetability was read. That run needs
+  PokeDojo's `cards` read model and an adapter; it is the number that decides the
+  zero-dependency posture.
+- **The solver's residue.** The census drops cross-group correlation on a split.
+  The full solver's never-confirmed rate lands between this upper bound and zero;
+  the gap is what the solver is worth.
+- **Per-deck or per-archetype rates.** Not stratified; `n` per group is too small
+  to support them here.
+- **Locale variation.** The corpus is `en` only.
+
+## Reproduce
+
+```sh
+# fixtures, committed and reviewable
+pnpm run census:fixtures
+
+# corpus, read-only, aggregates only
+cd ../pokedojo.pro
+pnpm exec tsx scripts/audit-battle-log-census.mjs --limit=411
+```
+
+Every rate is an observed proportion with `n` and a 95% Wilson interval. This is
+a census of one corpus, not a sampled estimate of the player base.

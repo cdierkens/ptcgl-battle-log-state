@@ -1,2 +1,12 @@
 allowBuilds:
   esbuild: true
+
+# pnpm's supply-chain policy rejects a lockfile entry published less than a day
+# ago. That is the right default, and it fires on this package's own parser
+# dependency every time we cut a parser release and consume it immediately.
+#
+# The exemption is version-specific on purpose: it covers exactly one release,
+# and the next one is gated again. Remove the line once that release is a day
+# old — it is a 24-hour grace period, not a policy hole.
+minimumReleaseAgeExclude:
+  - '@dierkens.dev/ptcgl-battle-log-parser@1.2.0'

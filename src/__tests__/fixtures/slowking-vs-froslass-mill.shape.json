@@ -1,0 +1,221 @@
+{
+  "phases": [
+    {
+      "displayTurnNumber": null,
+      "kind": "Setup",
+      "mainEntryCount": 8,
+      "playerName": null,
+      "side": null,
+      "sideSource": null
+    },
+    {
+      "displayTurnNumber": 1,
+      "kind": "Turn",
+      "mainEntryCount": 7,
+      "playerName": "TSLAUJ",
+      "side": "opponent",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 1,
+      "kind": "Turn",
+      "mainEntryCount": 10,
+      "playerName": "cdierkens",
+      "side": "self",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 2,
+      "kind": "Turn",
+      "mainEntryCount": 6,
+      "playerName": "TSLAUJ",
+      "side": "opponent",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": null,
+      "kind": "Checkup",
+      "mainEntryCount": 1,
+      "playerName": null,
+      "side": null,
+      "sideSource": null
+    },
+    {
+      "displayTurnNumber": 2,
+      "kind": "Turn",
+      "mainEntryCount": 5,
+      "playerName": "cdierkens",
+      "side": "self",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": null,
+      "kind": "Checkup",
+      "mainEntryCount": 1,
+      "playerName": null,
+      "side": null,
+      "sideSource": null
+    },
+    {
+      "displayTurnNumber": 3,
+      "kind": "Turn",
+      "mainEntryCount": 13,
+      "playerName": "TSLAUJ",
+      "side": "opponent",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": null,
+      "kind": "Checkup",
+      "mainEntryCount": 1,
+      "playerName": null,
+      "side": null,
+      "sideSource": null
+    },
+    {
+      "displayTurnNumber": 3,
+      "kind": "Turn",
+      "mainEntryCount": 3,
+      "playerName": "cdierkens",
+      "side": "self",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": null,
+      "kind": "Checkup",
+      "mainEntryCount": 1,
+      "playerName": null,
+      "side": null,
+      "sideSource": null
+    },
+    {
+      "displayTurnNumber": 4,
+      "kind": "Turn",
+      "mainEntryCount": 11,
+      "playerName": "TSLAUJ",
+      "side": "opponent",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": null,
+      "kind": "Checkup",
+      "mainEntryCount": 1,
+      "playerName": null,
+      "side": null,
+      "sideSource": null
+    },
+    {
+      "displayTurnNumber": 4,
+      "kind": "Turn",
+      "mainEntryCount": 8,
+      "playerName": "cdierkens",
+      "side": "self",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": null,
+      "kind": "Checkup",
+      "mainEntryCount": 1,
+      "playerName": null,
+      "side": null,
+      "sideSource": null
+    },
+    {
+      "displayTurnNumber": 5,
+      "kind": "Turn",
+      "mainEntryCount": 6,
+      "playerName": "TSLAUJ",
+      "side": "opponent",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": null,
+      "kind": "Checkup",
+      "mainEntryCount": 1,
+      "playerName": null,
+      "side": null,
+      "sideSource": null
+    },
+    {
+      "displayTurnNumber": 5,
+      "kind": "Turn",
+      "mainEntryCount": 17,
+      "playerName": "cdierkens",
+      "side": "self",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": null,
+      "kind": "Checkup",
+      "mainEntryCount": 1,
+      "playerName": null,
+      "side": null,
+      "sideSource": null
+    },
+    {
+      "displayTurnNumber": 6,
+      "kind": "Turn",
+      "mainEntryCount": 14,
+      "playerName": "TSLAUJ",
+      "side": "opponent",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": null,
+      "kind": "Checkup",
+      "mainEntryCount": 1,
+      "playerName": null,
+      "side": null,
+      "sideSource": null
+    },
+    {
+      "displayTurnNumber": 6,
+      "kind": "Turn",
+      "mainEntryCount": 19,
+      "playerName": "cdierkens",
+      "side": "self",
+      "sideSource": "declared"
+    }
+  ],
+  "templateKeyCounts": {
+    "blog_loc_added_prize": 7,
+    "blog_loc_applied_damage": 5,
+    "blog_loc_attach_card_active": 3,
+    "blog_loc_attach_card_bench": 10,
+    "blog_loc_card_activated": 3,
+    "blog_loc_discarded_attachment": 8,
+    "blog_loc_discarded_attachment_multi": 3,
+    "blog_loc_discarded_from_board": 7,
+    "blog_loc_draw_opening_hand": 2,
+    "blog_loc_drawn_cards_grid_header": 2,
+    "blog_loc_drew_card": 33,
+    "blog_loc_drew_then_play_bench": 2,
+    "blog_loc_drew_then_play_bench_multi": 1,
+    "blog_loc_end_game": 1,
+    "blog_loc_evolved_bench": 7,
+    "blog_loc_going_first": 1,
+    "blog_loc_knockout": 7,
+    "blog_loc_manual_end": 4,
+    "blog_loc_move_on_top_deck": 2,
+    "blog_loc_move_to_hand": 1,
+    "blog_loc_play_to_active": 2,
+    "blog_loc_play_to_bench": 9,
+    "blog_loc_played_card": 26,
+    "blog_loc_played_to_stadium": 3,
+    "blog_loc_player_moved_dc": 1,
+    "blog_loc_player_placed_dc": 8,
+    "blog_loc_player_placed_single_dc": 33,
+    "blog_loc_promote_to_active": 8,
+    "blog_loc_retreated": 4,
+    "blog_loc_secondary_damage": 5,
+    "blog_loc_selected_coinface": 1,
+    "blog_loc_selected_option": 2,
+    "blog_loc_shuffled_card_into_deck": 5,
+    "blog_loc_shuffled_deck": 16,
+    "blog_loc_switched_active": 2,
+    "blog_loc_took_prize_cards": 2,
+    "blog_loc_took_single_prize_card": 1,
+    "blog_loc_used_attack": 18,
+    "blog_loc_won_coin_toss": 1
+  }
+}

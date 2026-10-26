@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # Every action in .github/workflows/ is pinned to a commit SHA so a moved tag
+  # cannot change what runs. Nothing updates those pins except this entry.
+  #
+  # A note on why this exists when the repository-surface decision said
+  # "security alerts only": that ruling was about *npm dependencies*. Actions
+  # are a supply-chain surface in their own right, and a pinned SHA that never
+  # moves is a pinned SHA that never gets a security fix. Grouped and monthly
+  # so it is one PR, not fifteen.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # npm dependencies are deliberately absent. The only runtime dependency is the
+  # parser, pinned exactly so a key-set change cannot reach us silently; that pin
+  # is moved by hand, with a changeset, and never by a scheduled PR.

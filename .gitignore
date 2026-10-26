@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+.cache/
+*.tgz
+*.tsbuildinfo
+
+# Vendored agent-skill install. Reproducible from skills-lock.json, which is
+# committed; the installed copy is not.
+.agents/
+
+# Stray log output, but never the vendored battle-log fixtures under src/.
+/*.log
+
+.DS_Store
+.env
+.env.local

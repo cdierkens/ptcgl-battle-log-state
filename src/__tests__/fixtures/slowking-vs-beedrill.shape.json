@@ -1,0 +1,127 @@
+{
+  "phases": [
+    {
+      "displayTurnNumber": null,
+      "kind": "Setup",
+      "mainEntryCount": 10,
+      "playerName": null,
+      "side": null,
+      "sideSource": null
+    },
+    {
+      "displayTurnNumber": 1,
+      "kind": "Turn",
+      "mainEntryCount": 7,
+      "playerName": "cdierkens",
+      "side": "self",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 1,
+      "kind": "Turn",
+      "mainEntryCount": 11,
+      "playerName": "Wonder_Squid",
+      "side": "opponent",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 2,
+      "kind": "Turn",
+      "mainEntryCount": 16,
+      "playerName": "cdierkens",
+      "side": "self",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 2,
+      "kind": "Turn",
+      "mainEntryCount": 25,
+      "playerName": "Wonder_Squid",
+      "side": "opponent",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 3,
+      "kind": "Turn",
+      "mainEntryCount": 4,
+      "playerName": "cdierkens",
+      "side": "self",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 3,
+      "kind": "Turn",
+      "mainEntryCount": 19,
+      "playerName": "Wonder_Squid",
+      "side": "opponent",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 4,
+      "kind": "Turn",
+      "mainEntryCount": 16,
+      "playerName": "cdierkens",
+      "side": "self",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 4,
+      "kind": "Turn",
+      "mainEntryCount": 12,
+      "playerName": "Wonder_Squid",
+      "side": "opponent",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 5,
+      "kind": "Turn",
+      "mainEntryCount": 22,
+      "playerName": "cdierkens",
+      "side": "self",
+      "sideSource": "declared"
+    }
+  ],
+  "templateKeyCounts": {
+    "blog_loc_added_prize": 9,
+    "blog_loc_applied_damage": 6,
+    "blog_loc_attach_card_active": 3,
+    "blog_loc_attach_card_bench": 11,
+    "blog_loc_card_activated": 4,
+    "blog_loc_discarded_attachment": 4,
+    "blog_loc_discarded_attachment_multi": 4,
+    "blog_loc_discarded_from_board": 9,
+    "blog_loc_draw_opening_hand": 2,
+    "blog_loc_drawn_cards_grid_header": 2,
+    "blog_loc_drew_card": 36,
+    "blog_loc_drew_then_play_bench": 2,
+    "blog_loc_drew_then_play_bench_multi": 3,
+    "blog_loc_end_game": 1,
+    "blog_loc_evolved_active": 1,
+    "blog_loc_evolved_bench": 11,
+    "blog_loc_export_damage_breakdown_label": 6,
+    "blog_loc_going_first": 1,
+    "blog_loc_knockout": 8,
+    "blog_loc_manual_end": 2,
+    "blog_loc_move_on_top_deck": 1,
+    "blog_loc_move_to_bottom_deck": 2,
+    "blog_loc_move_to_hand": 2,
+    "blog_loc_move_to_prizes": 1,
+    "blog_loc_play_to_active": 2,
+    "blog_loc_play_to_bench": 10,
+    "blog_loc_played_card": 32,
+    "blog_loc_played_to_stadium": 2,
+    "blog_loc_promote_to_active": 10,
+    "blog_loc_retreated": 5,
+    "blog_loc_secondary_damage": 4,
+    "blog_loc_selected_coinface": 1,
+    "blog_loc_selected_option": 3,
+    "blog_loc_shuffled_card_into_deck": 4,
+    "blog_loc_shuffled_deck": 23,
+    "blog_loc_shuffled_hand": 1,
+    "blog_loc_shuffled_prizes": 1,
+    "blog_loc_took_prize_cards": 2,
+    "blog_loc_took_single_prize_card": 3,
+    "blog_loc_used_attack": 8,
+    "blog_loc_won_coin_toss": 1
+  }
+}

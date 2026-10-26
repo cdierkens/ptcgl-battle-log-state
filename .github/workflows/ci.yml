@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    # 22 is the declared floor; 24 is current. No code in the package branches
+    # on platform, so macOS is insurance rather than coverage of a known path.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      # Every action is pinned to a commit SHA: a moved tag cannot change what
+      # runs here. Dependabot keeps the pins current.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # typecheck + lint + test:coverage (which enforces the coverage floor)
+      # + build.
+      - run: pnpm run verify
+
+  # Proves the published artefact actually loads in a plain Node process, with
+  # the parser resolved from the registry rather than from a workspace link.
+  smoke:
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm pack --pack-destination .
+
+      - name: Install the packed tarball and exercise it
+        run: |
+          mkdir -p /tmp/smoke
+          cd /tmp/smoke
+          npm init -y > /dev/null
+          npm pkg set type=module > /dev/null
+          npm install "$GITHUB_WORKSPACE"/*.tgz
+          node "$GITHUB_WORKSPACE/scripts/smoke.mjs"
+
+  # One stable status check for branch protection. A matrix job expands into
+  # four contexts — "verify (ubuntu-latest, 22)" and friends — which is a
+  # brittle thing to enumerate in a required-checks list and would silently stop
+  # gating if the matrix ever changed. This collapses them into `ci-ok`.
+  ci-ok:
+    runs-on: ubuntu-latest
+    needs: [verify, smoke]
+    # `always()` so this still runs (and fails) when a needed job failed or was
+    # skipped; without it the required check would simply never appear.
+    if: always()
+    steps:
+      - if: needs.verify.result != 'success' || needs.smoke.result != 'success'
+        run: |
+          echo "::error::a required job did not succeed"
+          exit 1
+      - run: echo "all required jobs succeeded"

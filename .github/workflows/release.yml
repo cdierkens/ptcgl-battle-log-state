@@ -1,0 +1,147 @@
+name: Release
+
+# The single sanctioned release action is pushing a `v*` tag. Everything after
+# that is automated, tokenless, and provenance-signed.
+on:
+  push:
+    tags: ["v*"]
+
+# Read-only by default; the publish job grants `id-token: write` for itself.
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    # Required reviewers gate this job. The tag push is the first key; the
+    # environment is the second. It is also where a fallback `NPM_TOKEN` would
+    # live if trusted publishing ever became unavailable.
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@dierkens.dev/ptcgl-battle-log-state
+
+    permissions:
+      contents: read
+      # The one permission OIDC trusted publishing needs. There is no
+      # NPM_TOKEN anywhere in this workflow, and no `--provenance` flag —
+      # npm generates and publishes the attestation automatically.
+      id-token: write
+
+    steps:
+      # Pinned to a commit SHA: a moved tag cannot change what runs here.
+      # Dependabot keeps these current (see .github/dependabot.yml).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          run_install: false
+
+      # No `registry-url:` on purpose. actions/setup-node writes an
+      # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` line when it is
+      # set; with NODE_AUTH_TOKEN unset that expands to empty, which npm reads
+      # as "auth is already configured" — so it never starts the OIDC exchange
+      # and fails with ENEEDAUTH. See actions/setup-node#1551.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.14.0 # the runtime half of the OIDC floor
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Trusted publishing authenticates through the **npm** CLI, which must be
+      # >= 11.5.1. Node 22.14.0 satisfies the runtime half of that requirement
+      # but bundles npm 10.x, so install npm explicitly rather than depending on
+      # whichever version a Node release happens to ship. Without this the
+      # publish fails with ENEEDAUTH, because npm 10 does not understand OIDC at
+      # all — there is no graceful fallback.
+      - run: npm install -g npm@^11.5.1
+
+      # Guard 1 — the tag must name the version being published. A mismatch
+      # publishes the wrong version under the right tag, and that cannot be
+      # undone.
+      - name: Assert the tag matches package.json
+        run: |
+          set -euo pipefail
+          pkg="$(node -p "require('./package.json').version")"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$pkg" != "$tag" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${pkg}"
+            exit 1
+          fi
+
+      # Guard 2 — a release must come from main, so a stray tag on a feature
+      # branch cannot publish.
+      - name: Assert the tagged commit is on main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::${GITHUB_REF_NAME} is not an ancestor of main"
+            exit 1
+          fi
+
+      # Prereleases go to `next`; final releases move `latest`.
+      - name: Choose the dist-tag
+        id: dist
+        run: |
+          set -euo pipefail
+          pkg="$(node -p "require('./package.json').version")"
+          case "$pkg" in
+            *-*) echo "tag=next" >> "$GITHUB_OUTPUT" ;;
+            *)   echo "tag=latest" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      # `prepublishOnly` runs the gate (typecheck + lint + test:coverage +
+      # build) on publish, so nothing unverified can reach the registry.
+      #
+      # `npm publish`, not `pnpm publish`. pnpm just shells out to npm for this
+      # (pnpm/pnpm#9812), so npm is doing the OIDC exchange either way — being
+      # explicit about it means the authentication path does not depend on
+      # pnpm's delegation staying as it is. It also means there is no
+      # `--no-git-checks` anywhere: that flag only exists because pnpm checks
+      # whether a detached HEAD is the publish branch, and npm does not.
+      - run: npm publish --access public --tag "${{ steps.dist.outputs.tag }}"
+
+  # Runs only after the publish step succeeds, so a Release never announces a
+  # version that failed to reach the registry.
+  #
+  # Deliberately a separate job from `publish`: this one needs
+  # `contents: write`, and the job that authenticates to npm should not have it.
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.14.0
+
+      # The notes are the changelog entry itself, so there is no second summary
+      # to keep in sync. The step fails rather than posting empty notes.
+      - name: Build the release notes
+        run: node scripts/changelog-section.mjs "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"
+
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          flags=()
+          case "$tag" in
+            *-*) flags+=(--prerelease) ;;
+          esac
+          # Idempotent: a re-run after a partial failure updates the notes
+          # instead of failing on "release already exists".
+          if gh release view "$tag" > /dev/null 2>&1; then
+            gh release edit "$tag" --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}"
+          else
+            gh release create "$tag" --title "$tag" --verify-tag \
+              --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}"
+          fi

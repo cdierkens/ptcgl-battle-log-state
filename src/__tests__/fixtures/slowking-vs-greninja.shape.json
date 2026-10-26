@@ -1,0 +1,124 @@
+{
+  "phases": [
+    {
+      "displayTurnNumber": null,
+      "kind": "Setup",
+      "mainEntryCount": 8,
+      "playerName": null,
+      "side": null,
+      "sideSource": null
+    },
+    {
+      "displayTurnNumber": 1,
+      "kind": "Turn",
+      "mainEntryCount": 6,
+      "playerName": "Kingofslowbros",
+      "side": "opponent",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 1,
+      "kind": "Turn",
+      "mainEntryCount": 7,
+      "playerName": "cdierkens",
+      "side": "self",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 2,
+      "kind": "Turn",
+      "mainEntryCount": 10,
+      "playerName": "Kingofslowbros",
+      "side": "opponent",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 2,
+      "kind": "Turn",
+      "mainEntryCount": 12,
+      "playerName": "cdierkens",
+      "side": "self",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 3,
+      "kind": "Turn",
+      "mainEntryCount": 19,
+      "playerName": "Kingofslowbros",
+      "side": "opponent",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 3,
+      "kind": "Turn",
+      "mainEntryCount": 19,
+      "playerName": "cdierkens",
+      "side": "self",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 4,
+      "kind": "Turn",
+      "mainEntryCount": 9,
+      "playerName": "Kingofslowbros",
+      "side": "opponent",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 4,
+      "kind": "Turn",
+      "mainEntryCount": 11,
+      "playerName": "cdierkens",
+      "side": "self",
+      "sideSource": "declared"
+    },
+    {
+      "displayTurnNumber": 5,
+      "kind": "Turn",
+      "mainEntryCount": 10,
+      "playerName": "Kingofslowbros",
+      "side": "opponent",
+      "sideSource": "declared"
+    }
+  ],
+  "templateKeyCounts": {
+    "blog_loc_added_prize": 9,
+    "blog_loc_applied_damage": 2,
+    "blog_loc_attach_card_active": 5,
+    "blog_loc_attach_card_bench": 8,
+    "blog_loc_card_activated": 2,
+    "blog_loc_discarded_attachment": 3,
+    "blog_loc_discarded_attachment_multi": 3,
+    "blog_loc_discarded_from_board": 5,
+    "blog_loc_draw_opening_hand": 2,
+    "blog_loc_drawn_cards_grid_header": 2,
+    "blog_loc_drew_card": 27,
+    "blog_loc_drew_then_play_bench_multi": 2,
+    "blog_loc_end_game": 1,
+    "blog_loc_evolved_active": 1,
+    "blog_loc_evolved_bench": 6,
+    "blog_loc_export_damage_breakdown_label": 2,
+    "blog_loc_going_first": 1,
+    "blog_loc_knockout": 7,
+    "blog_loc_manual_end": 3,
+    "blog_loc_play_to_active": 2,
+    "blog_loc_play_to_bench": 9,
+    "blog_loc_played_card": 15,
+    "blog_loc_played_to_stadium": 1,
+    "blog_loc_player_placed_dc": 1,
+    "blog_loc_promote_to_active": 8,
+    "blog_loc_resistant_attack": 1,
+    "blog_loc_retreated": 5,
+    "blog_loc_secondary_damage": 4,
+    "blog_loc_selected_coinface": 1,
+    "blog_loc_selected_option": 1,
+    "blog_loc_shuffled_card_into_deck": 3,
+    "blog_loc_shuffled_deck": 13,
+    "blog_loc_switched_active": 1,
+    "blog_loc_took_prize_cards": 2,
+    "blog_loc_took_single_prize_card": 3,
+    "blog_loc_used_attack": 10,
+    "blog_loc_weak_attack": 1,
+    "blog_loc_won_coin_toss": 1
+  }
+}

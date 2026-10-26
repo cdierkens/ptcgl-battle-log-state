@@ -1,0 +1,82 @@
+name: Wrong board
+description: A reconstruction that is confidently wrong, or that cannot be built at all.
+title: "Wrong board: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A reconstruction that is *uncertain* is not a bug — `divergent` is a
+        result, and the document carries both possibilities. This template is
+        for the other two cases:
+
+        - a **confident board that is wrong** — it committed to one card when the
+          log pointed at another, or invented damage the log never dealt;
+        - an **unexecutable** document from a log the game actually played.
+
+        Replace real player handles with neutral stand-ins (`P1`, `P2`) before
+        pasting. The other player has not agreed to appear in this issue tracker.
+
+  - type: input
+    id: solver
+    attributes:
+      label: Solver version
+      description: From `provenance.solver` in the document, or the package version you ran.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: line
+    attributes:
+      label: The line it goes wrong at
+      description: |
+        From `prefix.line`, or from the `line` on an error diagnostic. This is
+        the single most useful field — a reconstruction that cannot be traced to
+        a line cannot be fixed.
+      placeholder: "142"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: determinacy
+    attributes:
+      label: What did the document say?
+      options:
+        - whole
+        - divergent
+        - unexecutable
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What the board actually was
+      description: |
+        Which card took the damage, which energy went where, what the real HP
+        was. Say how you know — "the knockout later shows it was the other one"
+        is the kind of reasoning that makes this fixable.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What the document said
+      description: Paste the relevant `slots` and `groups` entries, or the diagnostic.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: The battle log (handles replaced)
+      description: |
+        The whole log is welcome here, unlike a parser bug — the reconstruction
+        depends on the lines around the failure.
+      render: text
+    validations:
+      required: false

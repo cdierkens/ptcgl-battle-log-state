@@ -1,0 +1,20 @@
+# NOTICE
+
+The MIT licence in `LICENSE` covers this project's code.
+
+## Vendored battle-log fixtures
+
+When this package vendors battle-log fixtures, they are copied from
+[`@dierkens.dev/ptcgl-battle-log-parser`](https://github.com/cdierkens/ptcgl-battle-log-parser),
+which is MIT and by the same author. They are vendored rather than imported
+because the parser does not ship its fixtures in the published tarball
+(`files: ["dist"]`). Player handles in them are the maintainers' own, redacted at
+capture time by that package's fixture tool.
+
+The vendored fixtures are the regression net for lowering. They are data about
+the game, not code: no licence is asserted over the strings a battle log contains.
+
+## Trademarks
+
+Pokémon and Pokémon TCG Live are trademarks of The Pokémon Company. This project
+is not affiliated with or endorsed by them.

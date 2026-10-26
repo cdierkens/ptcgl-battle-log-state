@@ -1,0 +1,78 @@
+{
+  "name": "@dierkens.dev/ptcgl-battle-log-state",
+  "version": "0.1.0",
+  "description": "Reconstruct Pokémon TCG Live board state from a battle log. Zero runtime dependencies beyond the parser; divergence is a value, not a guess.",
+  "keywords": [
+    "pokemon",
+    "ptcg",
+    "ptcgl",
+    "pokemon-tcg-live",
+    "battle-log",
+    "board-state",
+    "reconstruction",
+    "tcgl"
+  ],
+  "license": "MIT",
+  "packageManager": "pnpm@11.11.0",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "schemas",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "CHANGELOG.md"
+  ],
+  "homepage": "https://github.com/cdierkens/ptcgl-battle-log-state#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cdierkens/ptcgl-battle-log-state.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cdierkens/ptcgl-battle-log-state/issues"
+  },
+  "scripts": {
+    "build": "pnpm run \"/^build:.*/\"",
+    "build:clean": "node -e \"import('node:fs').then(f=>f.rmSync('dist',{recursive:true,force:true}))\"",
+    "build:lib": "tsc -p tsconfig.build.json",
+    "test": "pnpm run \"/^test:.*/\"",
+    "test:unit": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "audit:fixtures": "pnpm run build && node scripts/audit-fixtures.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "verify": "pnpm run typecheck && pnpm run lint && pnpm run test:coverage && pnpm run build",
+    "prepublishOnly": "pnpm run verify",
+    "version": "changeset version"
+  },
+  "dependencies": {
+    "@dierkens.dev/ptcgl-battle-log-parser": "1.2.0"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^3.0.3",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.4",
+    "@vitest/coverage-v8": "^5.0.3",
+    "eslint": "^10.12.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.1",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  }
+}

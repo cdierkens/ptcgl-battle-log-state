@@ -169,6 +169,35 @@ view to be useful.
 
 **Codebase.** `ptcgl-battle-log-state` — ledger.
 
+**Measured (2026-10-27, implemented).** `CounterDamageEvent` now carries
+`ownerPrinted` (true for a Special Condition, false for a placed counter). When
+both sides have the card, each group forks into "received" and "did not"; the
+groups are independent, so the fork loses the "exactly one" link and a heal
+prunes each side on its own. The same change checks for a following knockout on
+the side the counters landed on; before, elimination cases looked on the printed
+side, missed the knockout, and claimed the body survived.
+
+| Same 411 logs (410 executable) | Bare before | Bare after | Informed before | Informed after |
+|---|---|---|---|---|
+| Turn-boundary boards confirmed | 54.8% | 53.9% | 58.1% | **57.2%** |
+| Identity groups confirmed at end | 76.8% | 74.5% | 79.2% | 77.2% |
+| Never-confirmed logs | 81.2% | 82.0% | 76.1% | 76.8% |
+| `KnockoutUnproven` | 249 | **147** | 535 | **421** |
+| `HealOverflow` | 109 | 95 | 112 | 98 |
+| Saturated logs | 31 | 35 | 20 | 24 |
+| `unexecutable` | 0 | 0 | 0 | 0 |
+
+A spike before the change predicted the board loss exactly: 14 confirmed
+boards, in 6 logs, changed when the guessed side was flipped, and those are the
+boards the honest fork gives up. Only 123 turn-boundary boards follow any
+ambiguous placement, and 109 of them were already unconfirmed. The four new
+`UnknownGroup` warnings (informed) are all on one group that the fork pushed
+past the variant cap; a saturated group stops applying moves, and it was
+already counted as never confirmed.
+
+The `KnockoutUnproven` drop is the lethal-side fix, not the fork: 102 of 249
+(bare) and 114 of 535 (informed) were the ledger's own false survival claims.
+
 ### 2. A source zone on moves — not from the line
 
 **Behavior.** A move to hand/deck/discard would ideally say whether the card
@@ -230,7 +259,8 @@ card text, compressed by name.
 
 ## Order and acceptance
 
-1. Stop trusting the printed side of a placed counter (fix 1).
+1. Stop trusting the printed side of a placed counter (fix 1). **Done**; see
+   "Measured" under fix 1: boards 58.1% → 57.2% informed.
 2. Re-run the same 411 logs and the same units.
 3. **Primary acceptance:** turn-boundary confirmed boards.
 4. **Secondary:** confirmed groups, never-confirmed logs, `KnockoutUnproven`.
@@ -238,9 +268,10 @@ card text, compressed by name.
 6. If the board rate is still below 80%, build the correlated solver.
 7. If it is still below 80% after that, ship the group view, not a claimed board.
 
-The per-group number is already 79.2%. The board number is 58.1%. Fix 1 is cheap
-enough to measure before committing to the solver; it may lower the rate by
-removing guesses, which is the honest direction.
+Before fix 1 the per-group number was 79.2% and the board number 58.1%; after
+it, 77.2% and 57.2%. The fall is the guesses removed. The board rate is well
+below 80%, so the next step is the correlated solver (fix 3), which can also
+restore the "exactly one side" link the per-group fork drops.
 
 ## Reproduce
 

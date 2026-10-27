@@ -1,5 +1,7 @@
 # Implementation prompt — stop guessing a placed counter's side
 
+> **Status: implemented.** Results are under fix 1, "Measured", in the findings.
+
 ## Role
 
 You are implementing fix 1 in

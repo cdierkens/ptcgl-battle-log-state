@@ -91,6 +91,12 @@ export interface CounterDamageEvent extends EventBase {
   readonly counters: number;
   /** `counters * 10`, computed here so no consumer re-derives it. */
   readonly damage: number;
+  /**
+   * Whether the line names the target's owner. A Special Condition line does.
+   * A placed-counter line names the owner of the card whose effect placed them,
+   * so `target.side` there is not the target's side.
+   */
+  readonly ownerPrinted: boolean;
 }
 
 /** Damage counters moved between two cards. */

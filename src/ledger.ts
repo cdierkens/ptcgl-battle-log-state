@@ -342,12 +342,15 @@ const knockoutFollows = (
       return true;
     }
     if (
-      (event.kind === "damage" || event.kind === "counterDamage")
+      (event.kind === "damage" || (event.kind === "counterDamage" && event.ownerPrinted))
       && event.target.side === side
       && event.target.name === name
     ) {
       return false;
     }
+    // A later placed counter on this name may have hit either side, so it does
+    // not prove this hit survived. Keep scanning; reporting lethal only skips a
+    // bound.
     if (event.kind === "heal" && event.target.side === side && event.target.name === name) {
       return false;
     }
@@ -532,15 +535,14 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
   /**
    * Find the group a target names, resolving a side the line does not prove.
    *
-   * A placed-counter line names the effect source's owner, not the target's
-   * (`TSLAUJ put 2 damage counters on TSLAUJ's Slowpoke` while the card is
-   * cdierkens's). When the card is only on the other side, the target side is
-   * forced by elimination — the same deduction that lets a log with one turn
-   * header resolve the second player. The event is reported, not silently
-   * rewritten: a caller can see every correction.
+   * When the card is only on the other side, the target side is forced by
+   * elimination — the same deduction that lets a log with one turn header
+   * resolve the second player. The event is reported, not silently rewritten:
+   * a caller can see every correction.
    *
-   * When both sides have the card, the printed side is used. For a placed
-   * counter that is a guess; see the solvability findings, fix 1.
+   * When both sides have the card, the printed side is used. Only lines that
+   * name the owner come here with both sides possible; a placed counter does
+   * not, and `placeCounters` forks instead.
    */
   const resolveGroup = (
     target: CardRef,
@@ -945,6 +947,60 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     if (group === null) {
       return;
     }
+    damageResolved(group, target, amount, lethal, at, zone);
+  };
+
+  /**
+   * Place counters from a line that does not name the target's owner.
+   *
+   * One side only: elimination, as `resolveGroup` does. Both sides: each group
+   * forks into "received" and "did not", because the line cannot say which.
+   * The groups are independent, so the fork loses the "exactly one" link; later
+   * evidence (a heal larger than the damage left) prunes each side on its own.
+   */
+  const placeCounters = (
+    target: CardRef,
+    amount: number,
+    lethal: (side: Side) => boolean,
+    at: EventLocation,
+  ): void => {
+    const printed = state.groups.get(keyOf(target.side, target.name));
+    const other = state.groups.get(keyOf(otherSide(target.side), target.name));
+    if (printed === undefined || other === undefined) {
+      const group = resolveGroup(target, "placed counters", at);
+      if (group !== null) {
+        damageResolved(group, target, amount, lethal(group.side), at, null);
+      }
+      return;
+    }
+    diagnose(
+      "SideAmbiguous",
+      "warning",
+      `placed counters name ${target.name}, which is on both sides; the line does not name the target's owner, so both sides carry the fork`,
+      at,
+      printed,
+    );
+    for (const group of [printed, other]) {
+      const hit = lethal(group.side);
+      expand(group, at, (values) => [
+        values,
+        ...values.map((value, index) => [
+          ...values.slice(0, index),
+          damageValue(value, amount, hit),
+          ...values.slice(index + 1),
+        ]),
+      ]);
+    }
+  };
+
+  const damageResolved = (
+    group: MutableGroup,
+    target: CardRef,
+    amount: number,
+    lethal: boolean,
+    at: EventLocation,
+    zone: "active" | "bench" | null,
+  ): void => {
     const inZone = (value: MaterialValue): boolean => zone === null || value.zone === zone;
     if (!hasMatch(group, inZone)) {
       diagnose(
@@ -1499,12 +1555,21 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
         attachTo(event.target, event.card, event.zone, at);
         break;
       case "counterDamage":
-        damageGroup(
-          event.target,
-          event.damage,
-          knockoutFollows(events, index, event.target.side, event.target.name),
-          at,
-        );
+        if (event.ownerPrinted) {
+          damageGroup(
+            event.target,
+            event.damage,
+            knockoutFollows(events, index, event.target.side, event.target.name),
+            at,
+          );
+        } else {
+          placeCounters(
+            event.target,
+            event.damage,
+            (side) => knockoutFollows(events, index, side, event.target.name),
+            at,
+          );
+        }
         break;
       case "damage":
         damageGroup(

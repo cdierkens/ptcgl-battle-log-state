@@ -78,6 +78,17 @@ const evolve = (
   zone,
 });
 
+// A placed-counter line: `side` is the printed player, not the target's owner.
+const placed = (side: Side, name: string, counters: number, line: number): GameEvent => ({
+  at: loc(line),
+  cause: "Test",
+  counters,
+  damage: counters * 10,
+  kind: "counterDamage",
+  ownerPrinted: false,
+  target: card(side, name),
+});
+
 const knockout = (side: Side, name: string, line: number): GameEvent => ({
   at: loc(line),
   kind: "knockout",
@@ -272,14 +283,7 @@ describe("identity groups", () => {
   it("resolves a side the log named wrongly by elimination", () => {
     const run = runLedger([
       play("opponent", "Slowpoke", "bench", 1),
-      {
-        at: loc(2),
-        cause: "Test",
-        counters: 1,
-        damage: 10,
-        kind: "counterDamage",
-        target: card("self", "Slowpoke"),
-      },
+      placed("self", "Slowpoke", 1, 2),
     ]);
 
     expect(run.diagnostics.map((diagnostic) => diagnostic.code)).toContain("SideMismatch");
@@ -432,6 +436,46 @@ describe("the rest of the transition table", () => {
     expect(run.liveGroups[0]?.hp).toEqual([{ max: null, min: 31 }]);
     expect(run.diagnostics.map((diagnostic) => diagnostic.code)).toContain("HealOverflow");
     expect(run.unexecutable).toBe(false);
+  });
+
+  it("forks placed counters across both sides when both have the card", () => {
+    const run = runLedger([
+      play("self", "Slowpoke", "bench", 1),
+      play("opponent", "Slowpoke", "bench", 2),
+      placed("self", "Slowpoke", 2, 3),
+    ]);
+
+    expect(run.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["SideAmbiguous"]);
+    expect(run.liveGroups.map((group) => [group.side, group.renderVariants])).toEqual([
+      ["self", 2],
+      ["opponent", 2],
+    ]);
+    expect(run.prefixes.divergent).toBe(1);
+  });
+
+  it("prunes a forked side when a later heal needs the counters", () => {
+    const run = runLedger([
+      play("self", "Slowpoke", "bench", 1),
+      play("opponent", "Slowpoke", "bench", 2),
+      placed("opponent", "Slowpoke", 2, 3),
+      heal("self", "Slowpoke", 20, 4),
+    ]);
+
+    const self = run.liveGroups.find((group) => group.side === "self");
+    const opponent = run.liveGroups.find((group) => group.side === "opponent");
+    expect(self?.renderVariants).toBe(1);
+    // The groups are independent, so the other side keeps both pictures.
+    expect(opponent?.renderVariants).toBe(2);
+  });
+
+  it("checks for a knockout on the side the counters landed on", () => {
+    const run = runLedger([
+      play("opponent", "Slowpoke", "active", 1),
+      placed("self", "Slowpoke", 3, 2),
+      knockout("opponent", "Slowpoke", 3),
+    ]);
+
+    expect(run.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["SideMismatch"]);
   });
 
   it("moves counters within one group and between groups", () => {

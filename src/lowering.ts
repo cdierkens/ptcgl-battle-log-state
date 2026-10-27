@@ -185,6 +185,8 @@ const counterDamage =
         counters,
         damage: counters * 10,
         kind: "counterDamage",
+        // Only a Special Condition line names the target's owner.
+        ownerPrinted: spec.causeIsCondition === true,
         target: card(input, spec.targetPlayer, spec.target),
       },
     ];

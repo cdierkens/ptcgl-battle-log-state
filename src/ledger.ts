@@ -530,14 +530,17 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
   const otherSide = (side: Side): Side => (side === "self" ? "opponent" : "self");
 
   /**
-   * Find the group a target names, resolving a side the log got wrong.
+   * Find the group a target names, resolving a side the line does not prove.
    *
-   * The corpus contains client exports that name the acting player for a placed
-   * counter (`TSLAUJ put 2 damage counters on TSLAUJ's Slowpoke` while the card
-   * is cdierkens's). The game has two sides and the card is only on the other
-   * one, so the target side is forced by elimination — the same deduction that
-   * lets a log with one turn header resolve the second player. The event is
-   * reported, not silently rewritten: a caller can see every correction.
+   * A placed-counter line names the effect source's owner, not the target's
+   * (`TSLAUJ put 2 damage counters on TSLAUJ's Slowpoke` while the card is
+   * cdierkens's). When the card is only on the other side, the target side is
+   * forced by elimination — the same deduction that lets a log with one turn
+   * header resolve the second player. The event is reported, not silently
+   * rewritten: a caller can see every correction.
+   *
+   * When both sides have the card, the printed side is used. For a placed
+   * counter that is a guess; see the solvability findings, fix 1.
    */
   const resolveGroup = (
     target: CardRef,

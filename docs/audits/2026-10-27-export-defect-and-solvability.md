@@ -8,20 +8,44 @@ in `docs/specs/` still bind.
 Related: [the first fork census](2026-10-26-fork-census.md),
 [the informed spike](2026-10-26-informed-spike.md)
 
+## Corrections (2026-10-27, after review)
+
+An audit of this document against the stored corpus and the game client's
+battle-log code found the export-defect model wrong. The counts stand; the
+explanation and two fixes do not:
+
+- **It is not an export defect.** The client fills the placed-counter
+  `[cardName]` slot with the acting player by design, and `[targetPlayerName]`
+  with the owner of the card whose effect placed the counters (falling back to
+  the target's owner only when that is unknown). The line never names the
+  target's owner. See the parser README, "What a line does not say".
+- **Fix 1 as written would invert correct placements.** `[targetPlayerName]` is
+  the source owner on almost every line, so "flip when it names the actor"
+  flips nearly all of them, including genuine own-side placements. Rewritten
+  below.
+- **Fix 2 as written is impossible.** `discarded_from_board` and
+  `discarded_from_hand` print identical text; no parser can tell them apart.
+  Since parser 2.0 the key is `null` with both candidates. `_hand` also covers
+  discards from the deck. Rewritten below.
+- **Scope of the counts.** The placed-counter events come from the 297 of the
+  411 logs that contain placed-counter lines.
+
 ## Summary
 
-1. The game’s export puts the **actor’s player name into a `cardName`
-   placeholder** for placed damage counters, and repeats that actor in the
-   `targetPlayerName` placeholder. It is not a parser bug. 3,180 counter
-   placements in 411 logs are affected.
+1. A placed-counter line names the **acting player** in its `cardName`
+   placeholder and the **effect source's owner** in `targetPlayerName`, by the
+   client's design. It never names the target's owner. 3,180 counter
+   placements (in the 297 logs that have any) needed the ledger to correct or
+   doubt the printed side.
 2. Card HP plus attack targetability reaches **79.2% of identity groups** but
    only **58.1% of turn-boundary boards**. The 80% bar depends on which unit is
    meant; more card data is not what closes the gap.
-3. The next work is structural: infer the defender from the attack context,
-   carry a source zone on moves, and only then build the correlated solver. Do
+3. The next work is structural: stop trusting the printed side of a placed
+   counter, and only then build the correlated solver. A source zone on
+   discards is not recoverable from the line. Do
    not package card data until the board rate is acceptable.
 
-## The export defect
+## The placed-counter line
 
 ### What the fixture prints
 
@@ -46,16 +70,18 @@ targetPlayerName         TSLAUJ
 targetPokemonCardName    Slowpoke
 ```
 
-TSLAUJ is a player, not a card. The Slowpoke is cdierkens’s. The line is wrong
-in two separable ways:
+TSLAUJ is a player, not a card. The Slowpoke is cdierkens’s. The line is not
+wrong; its placeholder names mislead:
 
-- **The `cardName` slot is a player name.** The template is card-shaped; the
-  game filled it with the actor.
-- **The `targetPlayerName` slot repeats the actor.** The intended target is the
-  defender, which is the other side.
+- **The `cardName` slot is the acting player**, by the client's design: 5,370 of
+  5,370 placed-counter lines.
+- **The `targetPlayerName` slot is the owner of the effect source**, not of the
+  target. It held the owner of the most recent `used` line in the phase in 5,192
+  of the 5,268 lines that had one. Here TSLAUJ's attack placed the counters, so
+  the line says TSLAUJ's.
 
 The parser is faithful to the printed line. No parser change recovers the
-intended target; only the board and the surrounding attack can.
+target's owner, because the line does not carry it; only the board can.
 
 ### How often
 
@@ -73,20 +99,22 @@ same line, over the same 411 logs:
 | `SideAmbiguous` | `detach` | 136 |
 
 The 2,426 `SideMismatch` placements name a side that has no such card; the ledger
-already flips those by elimination. The 754 `SideAmbiguous` placements name a
-card that exists on both sides, so the board cannot tell which copy was meant.
-Together, **3,180 placed-counter events are affected**.
+resolves those by elimination, which is a deduction. The 754 `SideAmbiguous`
+placements name a card that exists on both sides; the ledger currently applies
+them to the printed side, which for a placed counter is the source owner's — a
+guess. Together, **3,180 placed-counter events are affected**.
 
 The other 992 `SideAmbiguous` events are mirror matches (attach, damage,
-knockout, detach): the card is on both sides and the log names one. They are not
-the same export defect, but they have the same modelling consequence — a
-per-group model cannot branch across sides.
+knockout, detach): the card is on both sides and the log names one. Those lines
+do name the owner, so they are a different problem with the same modelling
+consequence — a per-group model cannot branch across sides.
 
 ### What not to do
 
 - **Do not change the parser.** The template and the line are what they are.
-- **Do not flip every same-name target.** A genuine self-target would be
-  inverted. Use the attack context, not the placeholder.
+- **Do not flip to the defender.** The printed side is the source owner on
+  almost every line, so a flip inverts every genuine own-side placement. The
+  attack context does not say which side the counters landed on either.
 - **Do not silently rewrite the record.** Keep what the log printed and record
   the inference; a reader must be able to see the correction.
 
@@ -123,43 +151,42 @@ does not make the product usable.
 
 ## The fixes
 
-### 1. Infer the defender from the attack context
+### 1. Treat a placed counter's side as unknown
 
-**Behavior.** A placed-counter line is a sub-entry of an attack. The attack’s
-source side is the actor; the target is the other side. The ledger tracks the
-last attack’s side and uses it when a counter placement names the actor as the
-target. The event remains in the record exactly as printed; the inference is
-reported.
+**Behavior.** The printed side of a placed counter is the source owner, so the
+ledger resolves the target by the board alone: the side that has the card when
+only one does (elimination, as today), and both sides when both do — a
+cross-side divergence, never the printed side. The event remains in the record
+exactly as printed; the resolution is reported.
 
-**Why it is safe.** The rule is contextual, not a blanket flip: it applies only
-to counter placements under an attack. A genuine self-target would need its own
-template or a different context.
+**Why it is safe.** It only removes a guess. Elimination is unchanged, and the
+754 ambiguous placements stop landing on a side the line never named.
 
-**Expected effect.** Corrects most of the 3,180 affected placements, reduces
-unexplained knockouts, and removes forks caused by damage landing on the wrong
-body. Measure; do not assume.
+**Expected effect.** Fewer confident-but-wrong boards; possibly a *lower*
+confirmed rate, because some boards were confirmed on a guess. Measure; do not
+assume. A cross-side divergence needs the correlated solver (fix 3) or a group
+view to be useful.
 
-**Codebase.** `ptcgl-battle-log-state` — ledger and, if needed, a lowering flag
-that the `cardName` value resolved to a player.
+**Codebase.** `ptcgl-battle-log-state` — ledger.
 
-### 2. Carry the source zone on moves
+### 2. A source zone on moves — not from the line
 
-**Behavior.** A move to hand/deck/discard must say whether the card came from
-the board, the hand, or an unknown zone. `discarded_from_board` and
-`discarded_from_hand` are distinct template keys with identical text; the
-lowering can carry that distinction into the event. A board-sourced move leaves;
-a hand-sourced move does not. An unknown source keeps the body rather than
-deleting it on no evidence.
+**Behavior.** A move to hand/deck/discard would ideally say whether the card
+came from the board. The line cannot: `discarded_from_board` and
+`discarded_from_hand` print identical text (parser 2.0 reports both as
+candidates), `_hand` covers own hand or deck, and the `move_to_*` and
+`shuffled_*` keys do not name a source. The client picks the discard key by the
+card's real source zone, which the export does not print.
 
-**Why it is partial.** The `move_to_*` and `shuffled_*` keys do not say where the
-card came from. The Night Stretcher-style “discard to hand” case stays unknown
-until card-effect data or a parser distinction supplies the source.
+**What remains possible.** Evidence from the board: a discarded name that is on
+the board and in no other line's reach can be reasoned about by the solver, not
+by the lowering. An unknown source keeps the body rather than deleting it on no
+evidence, as today.
 
-**Expected effect.** Removes phantom bodies the log can prove left; reduces the
-167 `BenchOverflow` warnings and the forks they create.
+**Expected effect.** None from the lowering. The 167 `BenchOverflow` warnings
+are a solver problem.
 
-**Codebase.** `ptcgl-battle-log-state` — lowering and event record; the ledger
-uses the new field.
+**Codebase.** `ptcgl-battle-log-state` — solver, if anywhere.
 
 ### 3. The correlated solver
 
@@ -203,7 +230,7 @@ card text, compressed by name.
 
 ## Order and acceptance
 
-1. Fix the side inference and the source zone.
+1. Stop trusting the printed side of a placed counter (fix 1).
 2. Re-run the same 411 logs and the same units.
 3. **Primary acceptance:** turn-boundary confirmed boards.
 4. **Secondary:** confirmed groups, never-confirmed logs, `KnockoutUnproven`.
@@ -211,8 +238,9 @@ card text, compressed by name.
 6. If the board rate is still below 80%, build the correlated solver.
 7. If it is still below 80% after that, ship the group view, not a claimed board.
 
-The per-group number is already 79.2%. The board number is 58.1%. The next two
-fixes are cheap enough to measure before committing to the solver.
+The per-group number is already 79.2%. The board number is 58.1%. Fix 1 is cheap
+enough to measure before committing to the solver; it may lower the rate by
+removing guesses, which is the honest direction.
 
 ## Reproduce
 

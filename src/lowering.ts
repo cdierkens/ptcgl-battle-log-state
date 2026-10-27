@@ -11,7 +11,7 @@
  * nothing else.
  */
 
-import type { BattleLog, MainEntry, SubEntry } from "@dierkens.dev/ptcgl-battle-log-parser";
+import type { BattleLog, MainEntry, SubEntry, TemplateEvent } from "@dierkens.dev/ptcgl-battle-log-parser";
 
 import { UnresolvedPlayersError } from "./errors.js";
 import type {
@@ -320,8 +320,8 @@ const moveCards =
 /**
  * `"[player] discarded [card]"` names only the actor, not a target owner.
  *
- * It is the same five words for the board and the hand, distinguished only by
- * template key, which is exactly the sort of thing the table exists to record.
+ * Board and hand discards print the same words, so the parser cannot name the
+ * key; both keys lower here, which is what lets a candidate pair agree.
  */
 const discardOwn: Handler = moveCards("discard", "playerName");
 
@@ -692,6 +692,46 @@ const IGNORE_BY_KEY: Readonly<Map<string, IgnoreReason>> = new Map(
     keys.map((key) => [key, reason as IgnoreReason] as const)),
 );
 
+/**
+ * How one event lowers: by its key, or — when the parser could not determine
+ * the key — by every candidate, only if they all agree. Candidates that lower
+ * differently are a diagnostic, never a pick.
+ */
+type Classification =
+  | { readonly kind: "mapped"; readonly handler: Handler }
+  | { readonly kind: "ignored"; readonly reason: IgnoreReason }
+  | { readonly kind: "unhandled" }
+  | { readonly kind: "ambiguous" };
+
+const classifyKey = (key: string): Classification => {
+  const handler = MAPPED[key];
+  if (handler !== undefined) return { handler, kind: "mapped" };
+  const reason = IGNORE_BY_KEY.get(key);
+  return reason === undefined ? { kind: "unhandled" } : { kind: "ignored", reason };
+};
+
+const classify = (event: TemplateEvent): Classification => {
+  if (event.templateKey !== null) return classifyKey(event.templateKey);
+  const each = event.candidateKeys.map(classifyKey);
+  if (each.some((c) => c.kind === "unhandled")) return { kind: "unhandled" };
+  const handlers = new Set(each.flatMap((c) => (c.kind === "mapped" ? [c.handler] : [])));
+  const [handler] = handlers;
+  if (handler !== undefined) {
+    return handlers.size === 1 && each.every((c) => c.kind === "mapped")
+      ? { handler, kind: "mapped" }
+      : { kind: "ambiguous" };
+  }
+  const reasons = new Set(each.flatMap((c) => (c.kind === "ignored" ? [c.reason] : [])));
+  const [reason] = reasons;
+  // Mixed reasons all lower to nothing; `unmodelled` is the one that admits
+  // the line may carry state this slice does not model.
+  return { kind: "ignored", reason: reasons.size === 1 && reason !== undefined ? reason : "unmodelled" };
+};
+
+/** The key a lowered entry is recorded under: the key, or every candidate. */
+export const keyLabel = (event: TemplateEvent): string =>
+  event.templateKey ?? event.candidateKeys.join(" | ");
+
 const BREAKDOWN_LINE = /^(?<label>.*?):\s*(?<amount>-?\d+)\s+damage$/u;
 
 /** Parse a printed breakdown, and attach it to the damage event it explains. */
@@ -848,21 +888,32 @@ export const lower = (
   const diagnostics: LoweringDiagnostic[] = [];
 
   const run = (entry: MainEntry | SubEntry, location: EventLocation): readonly GameEvent[] => {
-    const handler = MAPPED[entry.event.templateKey];
-    if (handler === undefined) {
-      const reason = IGNORE_BY_KEY.get(entry.event.templateKey);
-      if (reason === undefined) {
-        unhandled.push({ at: location, key: entry.event.templateKey, raw: entry.event.raw });
-      } else {
-        ignored.push({ at: location, key: entry.event.templateKey, reason });
-      }
-      return [];
+    const key = keyLabel(entry.event);
+    const classification = classify(entry.event);
+    switch (classification.kind) {
+      case "unhandled":
+        unhandled.push({ at: location, key, raw: entry.event.raw });
+        return [];
+      case "ignored":
+        ignored.push({ at: location, key, reason: classification.reason });
+        return [];
+      case "ambiguous":
+        diagnostics.push({
+          at: location,
+          code: "AmbiguousTemplate",
+          message: `the line could be any of ${key}, and they lower differently`,
+          raw: entry.event.raw,
+        });
+        return [];
+      case "mapped":
+        break;
     }
+    const handler = classification.handler;
 
     const input: LoweringInput = {
       at: location,
       groups: entry.event.groups,
-      key: entry.event.templateKey,
+      key,
       raw: entry.event.raw,
       sideOfPlayer,
       subString: subStringOf(entry),
@@ -937,7 +988,7 @@ export const lower = (
           // never collapsed — two identical Weedles really do both take damage.
           const signature = signatureOf(event);
           if (signature !== null && seenDamage.has(signature)) {
-            ignored.push({ at: subLocation, key: sub.event.templateKey, reason: "restatement" });
+            ignored.push({ at: subLocation, key: keyLabel(sub.event), reason: "restatement" });
             continue;
           }
           events.push(event);

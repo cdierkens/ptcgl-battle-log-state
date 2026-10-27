@@ -199,3 +199,38 @@ describe("lowering the fixtures", () => {
     }
   });
 });
+
+describe("lowering a line whose key the parser could not determine", () => {
+  const lowerLocale = (locale: "en" | "fr" | "ptbr", lines: readonly string[]) => {
+    const raw = lines.join("\n");
+    return unwrap(lower(unwrap(parseBattleLog(raw, { locale, playerName: "Alice" })), raw));
+  };
+
+  it("lowers it when every candidate lowers the same way", () => {
+    const lowered = lowerLocale("en", ["Alice's Turn", "Alice discarded Nest Ball."]);
+
+    expect(lowered.events).toMatchObject([
+      { card: { name: "Nest Ball", side: "self" }, kind: "moveCard", to: "discard" },
+    ]);
+    expect(lowered.diagnostics).toEqual([]);
+  });
+
+  it("ignores it as unmodelled when the candidates are ignored for different reasons", () => {
+    const lowered = lowerLocale("en", ["Alice's Turn", "Damage to Pikachu was prevented."]);
+
+    expect(lowered.ignored).toMatchObject([{
+      key: "blog_loc_damage_blocked | blog_loc_effect_prevention_damage | blog_loc_effect_prevention_damagecounters",
+      reason: "unmodelled",
+    }]);
+  });
+
+  it("reports it, rather than picking, when the candidates lower differently", () => {
+    const fr = lowerLocale("fr", ["Tour de Alice", "Pikachu de Alice a été soigné de 30 dégâts."]);
+    const ptbr = lowerLocale("ptbr", ["Turno de Alice", "Alice embaralhou Nest Ball no baralho dele."]);
+
+    for (const lowered of [fr, ptbr]) {
+      expect(lowered.events).toEqual([]);
+      expect(lowered.diagnostics).toMatchObject([{ code: "AmbiguousTemplate" }]);
+    }
+  });
+});

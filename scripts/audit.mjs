@@ -36,6 +36,9 @@ const bump = (map, key, by = 1) => {
   map.set(key, (map.get(key) ?? 0) + by);
 };
 
+// Same label lowering records: the key, or every candidate when undetermined.
+const keyLabel = (event) => event.templateKey ?? event.candidateKeys.join(" | ");
+
 const keyTally = (audit, key) => {
   const tally = audit.keys.get(key) ?? emptyKey();
   audit.keys.set(key, tally);
@@ -46,9 +49,9 @@ const keyTally = (audit, key) => {
 const countKeys = (audit, phases) => {
   for (const phase of phases) {
     for (const main of phase.mainEntries) {
-      keyTally(audit, main.event.templateKey).lines += 1;
+      keyTally(audit, keyLabel(main.event)).lines += 1;
       for (const sub of main.subEntries) {
-        keyTally(audit, sub.event.templateKey).lines += 1;
+        keyTally(audit, keyLabel(sub.event)).lines += 1;
       }
     }
   }

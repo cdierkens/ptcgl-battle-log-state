@@ -129,6 +129,7 @@ const parsed = {
               numDamage: "110",
               targetPokemonCardName: "Celebi",
             },
+            candidateKeys: ["blog_loc_applied_damage"],
             raw: damageLine,
             templateKey: "blog_loc_applied_damage",
           },

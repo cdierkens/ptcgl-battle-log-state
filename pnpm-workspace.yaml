@@ -9,4 +9,4 @@ allowBuilds:
 # and the next one is gated again. Remove the line once that release is a day
 # old — it is a 24-hour grace period, not a policy hole.
 minimumReleaseAgeExclude:
-  - '@dierkens.dev/ptcgl-battle-log-parser@1.2.0'
+  - '@dierkens.dev/ptcgl-battle-log-parser@2.0.0'

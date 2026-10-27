@@ -18,7 +18,7 @@
  * diagnostic, never a silent clamp (D8).
  */
 
-import type { CardRef, CardZone, EventLocation, GameEvent } from "./events.js";
+import type { CardRef, CardZone, CounterDamageEvent, EventLocation, GameEvent } from "./events.js";
 import type { CardOracle } from "./oracle.js";
 import type { HiddenZone, PrizeZone, Side, Zone } from "./types.js";
 
@@ -65,6 +65,7 @@ export interface LedgerDiagnostic {
     | "AttachmentMismatch"
     | "BenchOverflow"
     | "HealOverflow"
+    | "HpExceeded"
     | "KnockoutUnproven"
     | "NoVariant"
     | "PrizeOverflow"
@@ -333,42 +334,115 @@ const knockoutFollows = (
   // A knockout is printed within a handful of lines of the hit that caused it
   // (damage, maybe modifiers or sub-entries, then the knockout). Eight events is
   // wide enough to cross those lines and narrow enough to stop at the next turn.
-  for (let offset = 1; offset <= 8; offset += 1) {
+  // A hit late in a turn can have its knockout printed in the Checkup block that
+  // follows, so that one boundary is crossed; a Turn header never is.
+  const sameOrCheckup = (at: EventLocation): boolean =>
+    at.phaseIndex === source.at.phaseIndex
+    || (at.phaseIndex === source.at.phaseIndex + 1 && at.turn === null && source.at.turn !== null);
+  for (let offset = 1; ; offset += 1) {
     const event = events[index + offset];
-    if (event === undefined || event.at.phaseIndex !== source.at.phaseIndex) {
+    if (event === undefined || !sameOrCheckup(event.at)) {
       return false;
     }
     if (event.kind === "knockout" && event.target.side === side && event.target.name === name) {
       return true;
     }
-    if (
-      (event.kind === "damage" || (event.kind === "counterDamage" && event.ownerPrinted))
-      && event.target.side === side
-      && event.target.name === name
-    ) {
+  }
+  return false;
+};
+
+/**
+ * Whether the knocked-out card is the source of the latest attack or ability
+ * in this phase. Its own effect can knock it out (Cursed Blast, Overvolt
+ * Discharge), so the knockout needs no lethal damage.
+ */
+const actedLast = (events: readonly GameEvent[], index: number, target: CardRef): boolean => {
+  const at = events[index]?.at;
+  for (let back = index - 1; back >= 0; back -= 1) {
+    const event = events[back];
+    if (event === undefined || at === undefined || event.at.phaseIndex !== at.phaseIndex) {
       return false;
     }
-    // A later counter line that does not name the owner may have touched either
-    // side, so it does not prove this hit survived. Keep scanning; reporting lethal only skips a
-    // bound.
-    if (
-      event.kind === "heal" && event.ownerPrinted
-      && event.target.side === side && event.target.name === name
-    ) {
-      return false;
-    }
-    if (
-      event.kind === "moveCounters" && event.ownerPrinted
-      && event.to.side === side && event.to.name === name
-    ) {
-      return false;
-    }
-    if (event.kind === "endTurn" || event.kind === "endGame") {
-      return false;
+    if (event.kind === "attack") {
+      return event.source.side === target.side && event.source.name === target.name;
     }
   }
   return false;
 };
+
+const CHECKUP_EFFECTS: ReadonlySet<GameEvent["kind"]> = new Set([
+  "attack",
+  "counterDamage",
+  "damage",
+  "heal",
+  "moveCounters",
+]);
+
+/**
+ * Put each Checkup's effects before its knockouts. Knockouts are checked after
+ * every Checkup effect resolves, but the export can print them first (Freezing
+ * Shroud's counters follow the knockouts they cause).
+ */
+const checkupOrder = (events: readonly GameEvent[]): readonly GameEvent[] => {
+  const out: GameEvent[] = [];
+  let index = 0;
+  while (index < events.length) {
+    const first = events[index];
+    if (first === undefined) {
+      break;
+    }
+    let end = index;
+    while (events[end]?.at.phaseIndex === first.at.phaseIndex) {
+      end += 1;
+    }
+    const phase = events.slice(index, end);
+    const knockoutAt = phase.findIndex((event) => event.kind === "knockout");
+    if (first.at.turn !== null || knockoutAt < 0) {
+      out.push(...phase);
+    } else {
+      const tail = phase.slice(knockoutAt);
+      out.push(
+        ...phase.slice(0, knockoutAt),
+        ...tail.filter((event) => CHECKUP_EFFECTS.has(event.kind)),
+        ...tail.filter((event) => !CHECKUP_EFFECTS.has(event.kind)),
+      );
+    }
+    index = end;
+  }
+  return out;
+};
+
+/**
+ * Owner-unnamed counter lines from one effect step, by the index of the first
+ * line of each target name. The client builds one modification per step with
+ * one entry per target card and prints them as a contiguous run, so k lines
+ * naming one card in a run are k distinct bodies.
+ */
+const counterRuns = (
+  events: readonly GameEvent[],
+): ReadonlyMap<number, readonly CounterDamageEvent[]> => {
+  const batches = new Map<number, CounterDamageEvent[]>();
+  let firstByName = new Map<string, number>();
+  let previous: GameEvent | undefined;
+  events.forEach((line, index) => {
+    const continues = previous?.kind === "counterDamage" && !previous.ownerPrinted
+      && previous.at.phaseIndex === line.at.phaseIndex;
+    if (!continues) {
+      firstByName = new Map();
+    }
+    previous = line;
+    if (line.kind !== "counterDamage" || line.ownerPrinted) {
+      return;
+    }
+    const first = firstByName.get(line.target.name) ?? index;
+    firstByName.set(line.target.name, first);
+    batches.set(first, [...(batches.get(first) ?? []), line]);
+  });
+  return batches;
+};
+
+const sameDamage = (batch: readonly CounterDamageEvent[]): boolean =>
+  batch.every((line) => line.damage === batch[0]?.damage && line.target.side === batch[0].target.side);
 
 /** Names the log ever treats as an in-play Pokémon, used to classify bare plays. */
 const collectBoardNames = (events: readonly GameEvent[]): ReadonlySet<string> => {
@@ -442,7 +516,8 @@ const collectBoardNames = (events: readonly GameEvent[]): ReadonlySet<string> =>
  * group's variants, but a variant once dropped is not reconsidered. That is
  * what keeps the census an upper bound rather than a solver.
  */
-export const runLedger = (events: readonly GameEvent[], options: LedgerOptions = {}): LedgerRun => {
+export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions = {}): LedgerRun => {
+  const events = checkupOrder(logged);
   const cap = options.maxVariants ?? 4096;
   const oracle = options.oracle;
   const boardNames = collectBoardNames(events);
@@ -717,6 +792,9 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     return group;
   };
 
+  /** Values produced by a survival their card's HP cannot allow; `expand` prunes them. */
+  const impossibleSurvivals = new WeakSet<MaterialValue>();
+
   const expand = (
     group: MutableGroup,
     at: EventLocation,
@@ -726,9 +804,14 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
       return;
     }
     const out = new Map<string, readonly MaterialValue[]>();
+    const impossible = new Map<string, readonly MaterialValue[]>();
     outer: for (const values of group.variants.values()) {
       for (const candidate of next(values)) {
         const sorted = sortValues(candidate);
+        if (sorted.some((value) => impossibleSurvivals.has(value))) {
+          impossible.set(multisetKey(sorted, valueKey), sorted);
+          continue;
+        }
         out.set(multisetKey(sorted, valueKey), sorted);
         // Bound the intermediate map as well as the stored one: a transition
         // can generate a product far larger than the cap, and building it all
@@ -737,6 +820,19 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
         if (out.size > cap * 4) {
           break outer;
         }
+      }
+    }
+    if (out.size === 0 && impossible.size > 0) {
+      diagnose(
+        "HpExceeded",
+        "warning",
+        "every variant has a body surviving more damage than its card's HP",
+        at,
+        group,
+      );
+      // Fresh objects, so the kept bodies are not pruned again by later events.
+      for (const [key, values] of impossible) {
+        out.set(key, values.map((value) => ({ ...value })));
       }
     }
     if (out.size === 0) {
@@ -893,11 +989,22 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     lethal: boolean,
   ): MaterialValue => {
     const damage = value.damage + amount;
-    return {
+    const next = {
       ...value,
       damage,
       hp: lethal ? value.hp : { ...value.hp, min: Math.max(value.hp.min, damage + 1) },
     };
+    // Surviving more damage than the largest printing allows is impossible,
+    // unless a non-Energy attachment (a Tool such as Hero's Cape) may add HP.
+    // A body already over its max was reported once; don't prune it again.
+    if (
+      !lethal && next.hp.max !== null && next.hp.min > next.hp.max
+      && value.hp.min <= next.hp.max
+      && next.attachments.every((attached) => attached.includes("Energy"))
+    ) {
+      impossibleSurvivals.add(next);
+    }
+    return next;
   };
 
   const activeStates = (group: MutableGroup): readonly boolean[] =>
@@ -1146,6 +1253,69 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     }
   };
 
+  /**
+   * Apply one effect step's k owner-unnamed counter lines on one name: each
+   * lands on a different body. The printed side is the effect owner's, so the
+   * lines split between the sides: each group forks over every count it could
+   * have taken, each count over every choice of distinct bodies.
+   */
+  const placeDistinct = (batch: readonly CounterDamageEvent[], index: number): void => {
+    const [first] = batch;
+    if (first === undefined) {
+      return;
+    }
+    const { at, damage: amount, target } = first;
+    const sides: readonly Side[] = [target.side, otherSide(target.side)];
+    const groups = sides.flatMap((side) => {
+      const group = state.groups.get(keyOf(side, target.name));
+      return group === undefined ? [] : [group];
+    });
+    const capacity = (group: MutableGroup): number =>
+      Math.max(0, ...[...group.variants.values()].map((values) => values.length));
+    const total = groups.reduce((sum, group) => sum + capacity(group), 0);
+    if (groups.length === 0 || total < batch.length) {
+      // More lines than bodies: the one-per-body reading fails; fall back.
+      for (const line of batch) {
+        placeCounters(line.target, line.damage, (side) => knockoutFollows(events, index, side, line.target.name), line.at);
+      }
+      return;
+    }
+    if (groups.length > 1) {
+      diagnose(
+        "SideAmbiguous",
+        "warning",
+        `${String(batch.length)} counter lines name ${target.name}, which is on both sides; the lines do not name the owners`,
+        at,
+        groups[0] ?? null,
+      );
+    }
+    for (const group of groups) {
+      const others = total - capacity(group);
+      const least = Math.max(0, batch.length - others);
+      const most = Math.min(batch.length, capacity(group));
+      const lethal = knockoutFollows(events, index + batch.length - 1, group.side, target.name);
+      expand(group, at, (values) => {
+        const nexts: (readonly MaterialValue[])[] = [];
+        const pick = (start: number, left: number, current: readonly MaterialValue[]): void => {
+          if (left === 0) {
+            nexts.push(current);
+            return;
+          }
+          for (let body = start; body <= current.length - left; body += 1) {
+            const hit = current[body];
+            if (hit !== undefined) {
+              pick(body + 1, left - 1, current.map((value, i) => (i === body ? damageValue(hit, amount, lethal) : value)));
+            }
+          }
+        };
+        for (let count = least; count <= Math.min(most, values.length); count += 1) {
+          pick(0, count, values);
+        }
+        return nexts;
+      });
+    }
+  };
+
   /** Move counters named by a line that does not name either owner. */
   const moveUnprinted = (
     from: CardRef,
@@ -1224,29 +1394,23 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     }));
   };
 
-  const startKnockout = (target: CardRef, at: EventLocation): void => {
+  const startKnockout = (target: CardRef, at: EventLocation, index: number): void => {
     const group = resolveGroup(target, "knockout", at);
     if (group === null) {
       return;
     }
 
-    const preferred = group.id === state.active[group.side]
-      ? (value: MaterialValue): boolean => value.zone === "active"
-      : (value: MaterialValue): boolean => value.zone === "bench";
     const lethal = (value: MaterialValue): boolean => value.damage >= value.hp.min;
 
+    // Any body that damage could have knocked out is a candidate, in any zone;
+    // later lines such as the discard list prune the rest. With none, every
+    // body stays a candidate and the knockout is reported unproven below.
     const options = new Map<string, KnockoutOption>();
     for (const values of group.variants.values()) {
       let indices = values
         .map((value, index) => ({ index, value }))
-        .filter((entry) => preferred(entry.value) && lethal(entry.value))
+        .filter((entry) => lethal(entry.value))
         .map((entry) => entry.index);
-      if (indices.length === 0) {
-        indices = values
-          .map((value, index) => ({ index, value }))
-          .filter((entry) => preferred(entry.value))
-          .map((entry) => entry.index);
-      }
       if (indices.length === 0) {
         indices = values.map((_value, index) => index);
       }
@@ -1265,7 +1429,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
 
     const lethalOptions = [...options.values()].filter((option) =>
       option.removed.damage >= option.removed.hp.min);
-    if (lethalOptions.length === 0) {
+    if (lethalOptions.length === 0 && !actedLast(events, index, target)) {
       diagnose(
         "KnockoutUnproven",
         "warning",
@@ -1702,6 +1866,11 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     });
   };
 
+  const counterBatches = counterRuns(events);
+  const batchedLines = new Set<GameEvent>(
+    [...counterBatches.values()].flatMap((batch) => (batch.length > 1 && sameDamage(batch) ? batch : [])),
+  );
+
   events.forEach((event, index) => {
     const at = event.at;
 
@@ -1724,6 +1893,13 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
         attachTo(event.target, event.card, event.zone, at);
         break;
       case "counterDamage":
+        if (batchedLines.has(event)) {
+          const batch = counterBatches.get(index);
+          if (batch !== undefined) {
+            placeDistinct(batch, index);
+          }
+          break;
+        }
         if (event.ownerPrinted) {
           damageGroup(
             event.target,
@@ -1760,7 +1936,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
         draw(event.side, event.count, event.revealed, event.opening);
         break;
       case "knockout":
-        startKnockout(event.target, at);
+        startKnockout(event.target, at, index);
         break;
       case "endGame":
       case "endTurn":

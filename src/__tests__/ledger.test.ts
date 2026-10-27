@@ -791,6 +791,128 @@ describe("the card oracle", () => {
     expect(informed.diagnostics.some((diagnostic) => diagnostic.code === "KnockoutUnproven")).toBe(true);
   });
 
+  it("finds a knockout printed in the Checkup after the hit, but not in the next turn", () => {
+    const hitThenKnockout = (at: EventLocation) => runLedger([
+      play("self", "Slowpoke", "active", 1),
+      damage("self", "Slowpoke", 30, 2),
+      { ...knockout("self", "Slowpoke", 3), at },
+    ]).diagnostics.map((diagnostic) => diagnostic.code);
+
+    expect(hitThenKnockout({ line: 3, phaseIndex: 1, turn: null })).not.toContain("KnockoutUnproven");
+    expect(hitThenKnockout({ line: 3, phaseIndex: 1, turn: 2 })).toContain("KnockoutUnproven");
+  });
+
+  it("does not claim a hit survived when its knockout prints after a long resolution", () => {
+    const filler = Array.from({ length: 10 }, (_, offset) => play("opponent", `Filler ${String(offset)}`, "bench", 4 + offset));
+    const run = runLedger([
+      play("self", "Slowpoke", "active", 1),
+      damage("self", "Slowpoke", 30, 3),
+      ...filler,
+      knockout("self", "Slowpoke", 20),
+    ]);
+
+    expect(run.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain("KnockoutUnproven");
+  });
+
+  it("resolves a Checkup's effects before the knockouts the export prints first", () => {
+    const checkup = { phaseIndex: 1, turn: null };
+    const run = runLedger([
+      play("self", "Froslass", "active", 1),
+      play("opponent", "Pidgey", "active", 2),
+      damage("opponent", "Pidgey", 50, 3),
+      { ...knockout("opponent", "Pidgey", 4), at: { ...checkup, line: 4 } },
+      { at: { ...checkup, line: 5 }, attack: "Freezing Shroud", kind: "attack", source: card("self", "Froslass") },
+      { ...placed("opponent", "Pidgey", 1, 6), at: { ...checkup, line: 6 } },
+    ], { oracle: oracle("Pidgey", 60) });
+
+    expect(run.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([]);
+  });
+
+  it("puts one Checkup effect's counters on distinct bodies", () => {
+    const checkup = (line: number) => ({ line, phaseIndex: 1, turn: null });
+    const shroud = (lines: number): GameEvent[] => [
+      { at: checkup(10), attack: "Freezing Shroud", kind: "attack", source: card("opponent", "Froslass") },
+      ...Array.from({ length: lines }, (_, offset) => ({ ...placed("opponent", "Munkidori", 1, 11 + offset), at: checkup(11 + offset) })),
+    ];
+    const board = [
+      play("opponent", "Froslass", "active", 1),
+      play("self", "Munkidori", "active", 2),
+      play("self", "Munkidori", "bench", 3),
+      play("self", "Munkidori", "bench", 4),
+    ];
+
+    const all = runLedger([...board, ...shroud(3)]);
+    expect(all.liveGroups.find((group) => group.name === "Munkidori")?.renderVariants).toBe(1);
+    expect(all.liveGroups.find((group) => group.name === "Munkidori")?.hp).toEqual([{ max: null, min: 11 }]);
+
+    const two = runLedger([...board, ...shroud(2)]);
+    expect(two.liveGroups.find((group) => group.name === "Munkidori")?.hp)
+      .toEqual([{ max: null, min: 0 }, { max: null, min: 11 }]);
+  });
+
+  it("puts one effect step's counters on distinct bodies during a turn, until the run breaks", () => {
+    const board = [
+      play("self", "Munkidori", "active", 1),
+      play("self", "Munkidori", "bench", 2),
+    ];
+    const run = runLedger([...board, placed("opponent", "Munkidori", 2, 3), placed("opponent", "Munkidori", 2, 4)]);
+    expect(run.liveGroups[0]?.hp).toEqual([{ max: null, min: 21 }]);
+
+    const broken = runLedger([
+      ...board,
+      placed("opponent", "Munkidori", 2, 3),
+      { at: loc(4), count: 1, kind: "draw", opening: false, revealed: [], side: "self" },
+      placed("opponent", "Munkidori", 2, 5),
+    ]);
+    expect(broken.liveGroups[0]?.renderVariants).toBeGreaterThan(1);
+  });
+
+  it("accepts a knockout of the card whose own ability just acted", () => {
+    const codes = (actor: string) => runLedger([
+      play("self", "Dusknoir", "bench", 1),
+      play("self", "Pidgey", "active", 2),
+      { at: loc(3), attack: "Cursed Blast", kind: "attack", source: card("self", actor) },
+      knockout("self", "Dusknoir", 4),
+    ], { oracle: oracle("Dusknoir", 160) }).diagnostics.map((diagnostic) => diagnostic.code);
+
+    expect(codes("Dusknoir")).not.toContain("KnockoutUnproven");
+    expect(codes("Pidgey")).toContain("KnockoutUnproven");
+  });
+
+  it("prunes a world where a body survived more damage than its card's HP", () => {
+    const run = runLedger([
+      play("self", "Slowpoke", "active", 1),
+      play("self", "Slowpoke", "bench", 2),
+      damage("self", "Slowpoke", 60, 3),
+      damage("self", "Slowpoke", 80, 4),
+    ], { oracle: oracle("Slowpoke", 110) });
+
+    expect(run.liveGroups[0]?.hp.every((hp) => hp.max !== null && hp.min <= hp.max)).toBe(true);
+    expect(run.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain("HpExceeded");
+  });
+
+  it("reports, rather than prunes, a survival no world allows unless a Tool may add HP", () => {
+    const codes = (tool: readonly GameEvent[]) => runLedger([
+      play("self", "Slowpoke", "active", 1),
+      ...tool,
+      damage("self", "Slowpoke", 150, 3),
+    ], { oracle: oracle("Slowpoke", 110) }).diagnostics.map((diagnostic) => diagnostic.code);
+
+    expect(codes([])).toContain("HpExceeded");
+    expect(codes([attach("self", "Slowpoke", "Hero's Cape", 2)])).not.toContain("HpExceeded");
+  });
+
+  it("keeps a body that already exceeded its HP as a candidate for later hits", () => {
+    const run = runLedger([
+      play("self", "Slowpoke", "active", 1),
+      damage("self", "Slowpoke", 150, 2),
+      play("self", "Slowpoke", "bench", 3),
+      damage("self", "Slowpoke", 30, 4),
+    ], { oracle: oracle("Slowpoke", 110) });
+
+    expect(run.liveGroups[0]?.internalVariants).toBe(2);
+  });
+
   it("prunes a Bench copy when the attack can only hit the Active Spot", () => {
     const events: GameEvent[] = [
       play("self", "Kangaskhan", "active", 1),

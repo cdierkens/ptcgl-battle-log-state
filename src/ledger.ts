@@ -653,9 +653,12 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
   };
 
   const retire = (group: MutableGroup, at: EventLocation): void => {
-    // The divergence/saturation counters are updated by `observe`, which every
-    // retirement path calls after the final variant change. Decrementing here
-    // too would double-count the empty-group transition.
+    // `observe` handles the divergence counter when the final variant change
+    // happens. Saturation has no such observer, so clear it here.
+    if (group.saturated) {
+      state.saturatedGroupsLive = Math.max(0, state.saturatedGroupsLive - 1);
+      group.saturated = false;
+    }
     group.live = false;
     group.leftAt = at;
     if (state.groups.get(group.key) === group) {

@@ -249,3 +249,16 @@ pnpm exec tsx scripts/audit-battle-log-census.mjs --limit=411
 
 Every rate is an observed proportion with `n` and a 95% Wilson interval. This is
 a census of one corpus, not a sampled estimate of the player base.
+
+## Follow-up: the informed spike
+
+The HP interval was corrected after this run (`min` is inclusive; a survival at
+damage `d` sets `d + 1`). Re-running the bare census on the corrected code gives
+333/410 = 81.2% and 300/377 unsaturated; the difference is one log, and the
+conclusion is unchanged.
+
+[The informed spike](2026-10-26-informed-spike.md) adds card HP and attack
+targetability. It reaches **79.2% of identity groups** but only **58.1% of
+turn-boundary boards**, so card data alone does not make the board ~80%
+solvable. The remaining gap is the side bug, hidden-zone moves, unproven
+knockouts, and cross-group correlation — not more card fields.

@@ -211,6 +211,7 @@ const moveCounters =
         damage: counters * 10,
         from: card(input, spec.fromPlayer, spec.from),
         kind: "moveCounters",
+        ownerPrinted: false,
         to: card(input, spec.toPlayer, spec.to),
       },
     ];
@@ -230,6 +231,8 @@ const heal =
         at: at(input),
         damage: spec.inCounters === true ? printed * 10 : printed,
         kind: "heal",
+        // A counter-removal line prints the acting card's owner, not the target's.
+        ownerPrinted: spec.inCounters !== true,
         target: card(input, spec.targetPlayer, spec.target),
       },
     ];

@@ -198,6 +198,19 @@ describe("lowering the fixtures", () => {
       }
     }
   });
+
+  it("marks counter heals and moves as not naming the owner", () => {
+    const raw = [
+      "Alice's Turn",
+      "Alice's Pikachu healed 30 damage.",
+      "Alice's Pikachu was healed for 3 damage.",
+      "Dusknoir moved 2 damage counters from Alice's Pikachu to Alice's Eevee.",
+    ].join("\n");
+    const lowered = unwrap(lower(unwrap(parseBattleLog(raw, { locale: "en", playerName: "Alice" })), raw));
+
+    expect(lowered.events.map((event) => [event.kind, "ownerPrinted" in event && event.ownerPrinted]))
+      .toEqual([["heal", true], ["heal", false], ["moveCounters", false]]);
+  });
 });
 
 describe("lowering a line whose key the parser could not determine", () => {

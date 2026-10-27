@@ -107,6 +107,11 @@ export interface MoveCountersEvent extends EventBase {
   readonly to: CardRef;
   readonly counters: number;
   readonly damage: number;
+  /**
+   * Whether the line names the two cards' owners. A moved-counter line prints
+   * the owner of the card whose effect moved them for both ends.
+   */
+  readonly ownerPrinted: boolean;
 }
 
 /** Healing, in damage. */
@@ -114,6 +119,11 @@ export interface HealEvent extends EventBase {
   readonly kind: "heal";
   readonly target: CardRef;
   readonly damage: number;
+  /**
+   * Whether the line names the target's owner. `healed` does; `healed_dc`
+   * prints the owner of the card whose effect removed the counters.
+   */
+  readonly ownerPrinted: boolean;
 }
 
 /** A Pokémon was Knocked Out. */

@@ -348,13 +348,19 @@ const knockoutFollows = (
     ) {
       return false;
     }
-    // A later placed counter on this name may have hit either side, so it does
-    // not prove this hit survived. Keep scanning; reporting lethal only skips a
+    // A later counter line that does not name the owner may have touched either
+    // side, so it does not prove this hit survived. Keep scanning; reporting lethal only skips a
     // bound.
-    if (event.kind === "heal" && event.target.side === side && event.target.name === name) {
+    if (
+      event.kind === "heal" && event.ownerPrinted
+      && event.target.side === side && event.target.name === name
+    ) {
       return false;
     }
-    if (event.kind === "moveCounters" && event.to.side === side && event.to.name === name) {
+    if (
+      event.kind === "moveCounters" && event.ownerPrinted
+      && event.to.side === side && event.to.name === name
+    ) {
       return false;
     }
     if (event.kind === "endTurn" || event.kind === "endGame") {
@@ -993,6 +999,169 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     }
   };
 
+  /**
+   * Remove counters named by a line that does not name the card's owner.
+   *
+   * The counters must have been on the card, so a side whose group has no body
+   * carrying them is eliminated. Both sides viable: each forks into "lost them"
+   * and "did not". Neither viable: the printed side reports the overflow.
+   */
+  const removeCounters = (
+    target: CardRef,
+    amount: number,
+    at: EventLocation,
+    what: string,
+  ): void => {
+    const printed = state.groups.get(keyOf(target.side, target.name));
+    const other = state.groups.get(keyOf(otherSide(target.side), target.name));
+    if (printed === undefined || other === undefined) {
+      const group = resolveGroup(target, what, at);
+      if (group !== null) {
+        subtractDamage(group, at, amount, target.name, what);
+      }
+      return;
+    }
+    const carries = (value: MaterialValue): boolean => value.damage >= amount;
+    const viable = [printed, other].filter((group) => hasMatch(group, carries));
+    const only = viable.length === 1 ? viable[0] : undefined;
+    if (only !== undefined) {
+      if (only === other) {
+        diagnose(
+          "SideMismatch",
+          "warning",
+          `${what} names ${target.side}'s ${target.name}; only ${only.side}'s carries the counters`,
+          at,
+          only,
+        );
+      }
+      subtractDamage(only, at, amount, target.name, what);
+      return;
+    }
+    diagnose(
+      "SideAmbiguous",
+      "warning",
+      `${what} names ${target.name}, which is on both sides; the line does not name the owner`,
+      at,
+      printed,
+    );
+    if (viable.length === 0) {
+      subtractDamage(printed, at, amount, target.name, what);
+      return;
+    }
+    for (const group of viable) {
+      expand(group, at, (values) => [
+        values,
+        ...values.flatMap((value, index) =>
+          carries(value)
+            ? [[
+              ...values.slice(0, index),
+              { ...value, damage: value.damage - amount },
+              ...values.slice(index + 1),
+            ]]
+            : []),
+      ]);
+    }
+  };
+
+  /**
+   * Both ends of an owner-unnamed move are one name, so the counters may stay
+   * on a side or cross between sides. Every placement the board can carry is
+   * kept: one fits, it applies; several fit, each group forks over every
+   * outcome it has in any of them, including "untouched".
+   */
+  const sameNameMove = (
+    ref: CardRef,
+    amount: number,
+    at: EventLocation,
+    index: number,
+  ): void => {
+    const carries = (value: MaterialValue): boolean => value.damage >= amount;
+    const groupOn = (side: Side): MutableGroup | undefined => state.groups.get(keyOf(side, ref.name));
+    const within = (group: MutableGroup | undefined): boolean =>
+      group !== undefined && [...group.variants.values()].some((values) =>
+        values.length > 1 && values.some(carries));
+    const sides: readonly Side[] = [ref.side, otherSide(ref.side)];
+    const placements = sides.flatMap((source) => sides.flatMap((target) => {
+      const from = groupOn(source);
+      const fits = source === target
+        ? within(from)
+        : from !== undefined && hasMatch(from, carries) && groupOn(target) !== undefined;
+      return fits ? [{ source, target }] : [];
+    }));
+    const only = placements.length === 1 ? placements[0] : undefined;
+    if (placements.length === 0 || (only !== undefined && only.source === only.target)) {
+      const side = only?.source ?? ref.side;
+      if (side !== ref.side) {
+        diagnose("SideMismatch", "warning", `moved counters name ${ref.side}'s ${ref.name}; only ${side}'s can carry the move`, at, groupOn(side) ?? null);
+      }
+      handleMoveCounters({ ...ref, side }, { ...ref, side }, amount, at, index);
+      return;
+    }
+    if (only !== undefined) {
+      diagnose("SideMismatch", "warning", `moved counters name ${ref.side}'s ${ref.name} twice; only ${only.source} to ${only.target} can carry the move`, at, groupOn(only.target) ?? null);
+      handleMoveCounters({ ...ref, side: only.source }, { ...ref, side: only.target }, amount, at, index);
+      return;
+    }
+    diagnose(
+      "SideAmbiguous",
+      "warning",
+      `moved counters name ${ref.name} twice; the line does not name either owner and the move fits ${String(placements.length)} ways`,
+      at,
+      groupOn(ref.side) ?? null,
+    );
+    for (const side of sides) {
+      const group = groupOn(side);
+      if (group === undefined) {
+        continue;
+      }
+      const lethal = knockoutFollows(events, index, side, ref.name);
+      const roles = placements.map(({ source, target }) =>
+        source === side && target === side ? "within" : source === side ? "lose" : target === side ? "gain" : "untouched");
+      expand(group, at, (values) => roles.flatMap((role) => {
+        if (role === "untouched") {
+          return [values];
+        }
+        const nexts: (readonly MaterialValue[])[] = [];
+        values.forEach((source, sourceIndex) => {
+          if (role === "gain") {
+            nexts.push(values.map((value, i) => (i === sourceIndex ? damageValue(value, amount, lethal) : value)));
+            return;
+          }
+          if (!carries(source)) {
+            return;
+          }
+          const lost = values.map((value, i) => (i === sourceIndex ? { ...value, damage: value.damage - amount } : value));
+          if (role === "lose") {
+            nexts.push(lost);
+            return;
+          }
+          values.forEach((_target, targetIndex) => {
+            if (targetIndex !== sourceIndex) {
+              nexts.push(lost.map((value, i) => (i === targetIndex ? damageValue(value, amount, lethal) : value)));
+            }
+          });
+        });
+        return nexts;
+      }));
+    }
+  };
+
+  /** Move counters named by a line that does not name either owner. */
+  const moveUnprinted = (
+    from: CardRef,
+    to: CardRef,
+    amount: number,
+    at: EventLocation,
+    index: number,
+  ): void => {
+    if (from.name === to.name) {
+      sameNameMove(from, amount, at, index);
+      return;
+    }
+    removeCounters(from, amount, at, `moving ${String(amount)} damage from ${from.name}`);
+    placeCounters(to, amount, (side) => knockoutFollows(events, index, side, to.name), at);
+  };
+
   const damageResolved = (
     group: MutableGroup,
     target: CardRef,
@@ -1598,13 +1767,21 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
       case "attack":
         break;
       case "heal":
-        healGroup(event.target, event.damage, at);
+        if (event.ownerPrinted) {
+          healGroup(event.target, event.damage, at);
+        } else {
+          removeCounters(event.target, event.damage, at, `healing ${String(event.damage)}`);
+        }
         break;
       case "moveCard":
         moveCard(event.card, event.to, at);
         break;
       case "moveCounters":
-        handleMoveCounters(event.from, event.to, event.damage, at, index);
+        if (event.ownerPrinted) {
+          handleMoveCounters(event.from, event.to, event.damage, at, index);
+        } else {
+          moveUnprinted(event.from, event.to, event.damage, at, index);
+        }
         break;
       case "play":
         playCard(event.card, event.zone, at);

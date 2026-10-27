@@ -394,10 +394,17 @@ describe("the lowering fixes behind the ledger", () => {
 });
 
 describe("the rest of the transition table", () => {
-  const heal = (side: Side, name: string, amount: number, line: number): GameEvent => ({
+  const heal = (
+    side: Side,
+    name: string,
+    amount: number,
+    line: number,
+    ownerPrinted = true,
+  ): GameEvent => ({
     at: loc(line),
     damage: amount,
     kind: "heal",
+    ownerPrinted,
     target: card(side, name),
   });
 
@@ -415,6 +422,7 @@ describe("the rest of the transition table", () => {
     damage: counters * 10,
     from: card(fromSide, fromName),
     kind: "moveCounters",
+    ownerPrinted: false,
     to: card(toSide, toName),
   });
 
@@ -476,6 +484,61 @@ describe("the rest of the transition table", () => {
     ]);
 
     expect(run.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["SideMismatch"]);
+  });
+
+  it("removes unprinted-owner counters from the only side that carries them", () => {
+    const run = runLedger([
+      play("self", "Slowpoke", "bench", 1),
+      play("opponent", "Slowpoke", "bench", 2),
+      damage("opponent", "Slowpoke", 30, 3),
+      heal("self", "Slowpoke", 20, 4, false),
+    ]);
+
+    expect(run.diagnostics.filter((diagnostic) => diagnostic.at.line === 4).map((diagnostic) => diagnostic.code))
+      .toEqual(["SideMismatch"]);
+    expect(run.liveGroups.every((group) => group.renderVariants === 1)).toBe(true);
+  });
+
+  it("lands moved counters on the side that has the target", () => {
+    const run = runLedger([
+      play("self", "Dusknoir", "bench", 1),
+      play("opponent", "Pidgey", "active", 2),
+      damage("self", "Dusknoir", 30, 3),
+      moveCounters("self", "Dusknoir", "self", "Pidgey", 3, 4),
+      knockout("opponent", "Pidgey", 5),
+    ]);
+
+    expect(run.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["SideMismatch"]);
+  });
+
+  it("moves same-name counters across sides when only that fits", () => {
+    const run = runLedger([
+      play("self", "Pikachu", "bench", 1),
+      play("opponent", "Pikachu", "active", 2),
+      damage("self", "Pikachu", 30, 3),
+      moveCounters("self", "Pikachu", "self", "Pikachu", 3, 4),
+    ]);
+
+    expect(run.diagnostics.filter((diagnostic) => diagnostic.at.line === 4).map((diagnostic) => diagnostic.code))
+      .toEqual(["SideMismatch"]);
+    expect(run.liveGroups.find((group) => group.side === "opponent")?.hp).toEqual([{ max: null, min: 31 }]);
+  });
+
+  it("forks a same-name move that fits several placements instead of using the printed side", () => {
+    const run = runLedger([
+      play("self", "Pikachu", "bench", 1),
+      play("self", "Pikachu", "bench", 2),
+      play("opponent", "Pikachu", "active", 3),
+      play("opponent", "Pikachu", "bench", 4),
+      damage("self", "Pikachu", 30, 5),
+      damage("opponent", "Pikachu", 30, 6),
+      moveCounters("self", "Pikachu", "self", "Pikachu", 3, 7),
+    ]);
+
+    expect(run.diagnostics.filter((diagnostic) => diagnostic.at.line === 7).map((diagnostic) => diagnostic.code))
+      .toEqual(["SideAmbiguous"]);
+    const opponent = run.liveGroups.find((group) => group.side === "opponent");
+    expect(opponent?.hp).toContainEqual({ max: null, min: 61 });
   });
 
   it("moves counters within one group and between groups", () => {

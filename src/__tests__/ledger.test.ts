@@ -244,7 +244,7 @@ describe("identity groups", () => {
       damage("self", "Slowpoke", 30, 2),
     ]);
 
-    expect(run.liveGroups[0]?.hp).toEqual([{ max: null, min: 30 }]);
+    expect(run.liveGroups[0]?.hp).toEqual([{ max: null, min: 31 }]);
   });
 
   it("does not raise the bound when the hit is lethal", () => {
@@ -284,7 +284,7 @@ describe("identity groups", () => {
 
     expect(run.diagnostics.map((diagnostic) => diagnostic.code)).toContain("SideMismatch");
     // The counter landed on the other side, and the body survived it.
-    expect(run.liveGroups[0]?.hp).toEqual([{ max: null, min: 10 }]);
+    expect(run.liveGroups[0]?.hp).toEqual([{ max: null, min: 11 }]);
   });
 
   it("freezes a group once its variants exceed the cap", () => {
@@ -429,7 +429,7 @@ describe("the rest of the transition table", () => {
       heal("self", "Slowpoke", 40, 4),
     ]);
 
-    expect(run.liveGroups[0]?.hp).toEqual([{ max: null, min: 30 }]);
+    expect(run.liveGroups[0]?.hp).toEqual([{ max: null, min: 31 }]);
     expect(run.diagnostics.map((diagnostic) => diagnostic.code)).toContain("HealOverflow");
     expect(run.unexecutable).toBe(false);
   });
@@ -451,7 +451,7 @@ describe("the rest of the transition table", () => {
     ]);
     expect(between.unexecutable).toBe(false);
     expect(between.liveGroups.find((group) => group.name === "Slowking")?.hp)
-      .toEqual([{ max: null, min: 10 }]);
+      .toEqual([{ max: null, min: 11 }]);
   });
 
   it("devolves a body and keeps the remaining stack", () => {
@@ -653,5 +653,69 @@ describe("the rest of the transition table", () => {
 
     expect(run.liveGroups).toHaveLength(1);
     expect(run.unexecutable).toBe(false);
+  });
+});
+
+describe("the card oracle", () => {
+  const oracle = (name: string, hp: number, canHitBench: boolean | null = null) => ({
+    printings: (cardName: string) =>
+      cardName === name
+        ? [{
+            attacks: [{ canHitBench, name: "Test Attack" }],
+            evolvesFrom: null,
+            hp,
+            prizeValue: null,
+          }]
+        : null,
+  });
+
+  it("makes a knockout impossible when card HP is above the cumulative damage", () => {
+    const events = [
+      play("self", "Slowpoke", "active", 1),
+      damage("self", "Slowpoke", 30, 2),
+      knockout("self", "Slowpoke", 3),
+    ];
+    const bare = runLedger(events);
+    const informed = runLedger(events, { oracle: oracle("Slowpoke", 60) });
+
+    // Bare mode has no HP, so 30 damage is a possible knockout. Card HP 60 says
+    // it is not, and the ledger records that it could not explain the KO.
+    expect(bare.diagnostics.some((diagnostic) => diagnostic.code === "KnockoutUnproven")).toBe(false);
+    expect(informed.diagnostics.some((diagnostic) => diagnostic.code === "KnockoutUnproven")).toBe(true);
+  });
+
+  it("prunes a Bench copy when the attack can only hit the Active Spot", () => {
+    const events: GameEvent[] = [
+      play("self", "Kangaskhan", "active", 1),
+      play("self", "Kangaskhan", "bench", 2),
+      {
+        amount: 30,
+        at: loc(3),
+        attack: "Test Attack",
+        kind: "damage",
+        modifiers: [],
+        source: card("opponent", "Attacker"),
+        target: card("self", "Kangaskhan"),
+      },
+    ];
+    const bare = runLedger(events);
+    const informed = runLedger(events, { oracle: oracle("Attacker", 100, false) });
+
+    expect(bare.liveGroups[0]?.renderVariants).toBeGreaterThan(1);
+    expect(informed.liveGroups[0]?.renderVariants).toBe(1);
+    expect(informed.liveGroups[0]?.zoneCounts).toEqual([{ active: 1, bench: 1 }]);
+  });
+
+  it("counts turn-boundary prefixes separately", () => {
+    const run = runLedger([
+      play("self", "Kangaskhan", "active", 1),
+      { at: loc(2), kind: "endTurn", side: "self" },
+      play("self", "Slowpoke", "bench", 3),
+      { at: loc(4), kind: "endTurn", side: "self" },
+    ]);
+
+    expect(run.prefixes.stableTotal).toBe(2);
+    expect(run.prefixes.stableConfirmed).toBe(2);
+    expect(run.prefixes.stableDivergent).toBe(0);
   });
 });

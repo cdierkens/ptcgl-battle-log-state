@@ -33,11 +33,12 @@ copy that was hit has HP > 30. A per-name interval would silently prune the
 mixed-printing world. It would also resolve the worked froslass example without
 card data — and that resolution is not in the log.
 
-The package ships a `hp(name)` seam for the informed run, but slice 2 runs
-**bare**. The informed run needs PokeDojo's `cards` read model and a
-targetability adapter, which belong in `pokedojo.pro`, not here. The audit
-reports bare as an upper bound and says the delta is unmeasured; the seam makes
-the second run a data problem rather than a ledger change.
+The package ships a `CardOracle` port for the informed run, but slice 2 runs
+bare: the oracle is unset and every bound is learnt from the log. The informed
+run needs PokeDojo's `cards` read model and a targetability adapter, which belong
+in `pokedojo.pro`, not here. The audit reports bare as an upper bound and says the
+delta is unmeasured; the port makes the second run a data problem rather than a
+ledger change.
 
 ## 3. A fork worth reporting — a change of rendered picture
 

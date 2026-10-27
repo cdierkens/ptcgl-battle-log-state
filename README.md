@@ -85,8 +85,8 @@ The census is **not** the full solver: it is a forward pass with no
 backtracking, and it drops cross-group correlation when a body leaves a group.
 Both choices can only over-report divergence, which is the direction an
 upper-bound measurement needs. Card HP is learnt per body from survivals and
-knockouts; `census(events, { hp: (name) => number | null })` is the seam for an
-informed run with card data.
+knockouts; `census(events, { oracle })` is the seam for an informed run, where
+`oracle` is a `CardOracle` supplied by the caller.
 
 `pnpm run census:fixtures` runs the same aggregation over the committed logs.
 

@@ -19,9 +19,17 @@
  */
 
 import type { CardRef, CardZone, EventLocation, GameEvent } from "./events.js";
+import type { CardOracle } from "./oracle.js";
 import type { HiddenZone, PrizeZone, Side, Zone } from "./types.js";
 
-/** A monotone interval on one body's HP. `max: null` means no upper bound yet. */
+/**
+ * A monotone interval on one body's HP.
+ *
+ * `min` is inclusive: the smallest HP the body can have. A survival at damage
+ * `d` raises it to `d + 1` (HP is strictly greater than the damage it survived);
+ * card data sets both ends to the printing's HP. `max: null` means no upper
+ * bound yet.
+ */
 export interface HpInterval {
   readonly min: number;
   readonly max: number | null;
@@ -41,11 +49,11 @@ export interface MaterialValue {
 /** Options for {@link runLedger}. */
 export interface LedgerOptions {
   /**
-   * An informed HP lookup, keyed by card name. Bare mode leaves this unset and
-   * learns per-body bounds from knockouts and survivals. The seam exists so the
-   * informed corpus run is a data adapter, not a ledger change (D33).
+   * Optional card data. Bare mode leaves this unset and learns per-body bounds
+   * from knockouts and survivals. An oracle narrows those bounds by proof; it
+   * never supplies a guess (D4a).
    */
-  readonly hp?: (name: string) => number | null;
+  readonly oracle?: CardOracle;
   /** The largest variant set a group may hold before it is frozen. */
   readonly maxVariants?: number;
 }
@@ -63,6 +71,7 @@ export interface LedgerDiagnostic {
     | "Saturated"
     | "SideAmbiguous"
     | "SideMismatch"
+    | "TargetZoneUnreachable"
     | "UnknownGroup";
   readonly severity: "warning" | "error";
   readonly message: string;
@@ -112,6 +121,19 @@ export interface LedgerRun {
   readonly maxRenderVariants: number;
   readonly saturated: boolean;
   readonly unexecutable: boolean;
+  /** Per-prefix confirmation counts. A prefix is confirmed when no live group
+   * renders more than one picture and none is saturated. */
+  readonly prefixes: {
+    readonly total: number;
+    readonly confirmed: number;
+    readonly divergent: number;
+    readonly saturated: number;
+    /** Turn boundaries only: the board a viewer would stop on. */
+    readonly stableTotal: number;
+    readonly stableConfirmed: number;
+    readonly stableDivergent: number;
+    readonly stableSaturated: number;
+  };
 }
 
 interface MutableGroup {
@@ -128,6 +150,7 @@ interface MutableGroup {
   everDivergent: boolean;
   forkCount: number;
   lastRenderCount: number;
+  divergent: boolean;
   saturated: boolean;
   leftAt: EventLocation | null;
   readonly cap: number;
@@ -163,8 +186,20 @@ interface LedgerState {
   readonly prizes: Record<Side, MutablePrizeZone>;
   readonly pending: Map<string, PendingKnockout>;
   nextGroupId: number;
+  divergentGroups: number;
+  saturatedGroupsLive: number;
   maxInternalVariants: number;
   maxRenderVariants: number;
+  readonly prefixes: {
+    total: number;
+    confirmed: number;
+    divergent: number;
+    saturated: number;
+    stableTotal: number;
+    stableConfirmed: number;
+    stableDivergent: number;
+    stableSaturated: number;
+  };
 }
 
 const keyOf = (side: Side, name: string): string => `${side}\u0000${name}`;
@@ -400,7 +435,7 @@ const collectBoardNames = (events: readonly GameEvent[]): ReadonlySet<string> =>
  */
 export const runLedger = (events: readonly GameEvent[], options: LedgerOptions = {}): LedgerRun => {
   const cap = options.maxVariants ?? 4096;
-  const hpOf = options.hp;
+  const oracle = options.oracle;
   const boardNames = collectBoardNames(events);
   const state: LedgerState = {
     active: { opponent: null, self: null },
@@ -414,7 +449,19 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     maxInternalVariants: 0,
     maxRenderVariants: 0,
     nextGroupId: 0,
+    divergentGroups: 0,
+    saturatedGroupsLive: 0,
     pending: new Map(),
+    prefixes: {
+      confirmed: 0,
+      divergent: 0,
+      saturated: 0,
+      stableConfirmed: 0,
+      stableDivergent: 0,
+      stableSaturated: 0,
+      stableTotal: 0,
+      total: 0,
+    },
     prizes: {
       opponent: { known: [], remaining: 6 },
       self: { known: [], remaining: 6 },
@@ -422,8 +469,46 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
   };
 
   const initialHp = (name: string): HpInterval => {
-    const known = hpOf?.(name) ?? null;
-    return known === null ? { max: null, min: 0 } : { max: known, min: known };
+    const printings = oracle?.printings(name) ?? null;
+    const hps = printings?.flatMap((printing) =>
+      printing.hp === null || printing.hp <= 0 ? [] : [printing.hp]) ?? [];
+    if (hps.length === 0) {
+      return { max: null, min: 0 };
+    }
+    return { max: Math.max(...hps), min: Math.min(...hps) };
+  };
+
+  const targetZone = (
+    source: CardRef | null,
+    attack: string | null,
+  ): "active" | "bench" | null => {
+    if (source === null || attack === null || oracle === undefined) {
+      return null;
+    }
+    const printings = oracle.printings(source.name);
+    if (printings === null) {
+      return null;
+    }
+    let sawUnknown = false;
+    let sawBench = false;
+    let sawAttack = false;
+    for (const printing of printings) {
+      for (const candidate of printing.attacks) {
+        if (candidate.name !== attack) {
+          continue;
+        }
+        sawAttack = true;
+        if (candidate.canHitBench === true) {
+          sawBench = true;
+        } else if (candidate.canHitBench === null) {
+          sawUnknown = true;
+        }
+      }
+    }
+    if (!sawAttack || sawBench || sawUnknown) {
+      return null;
+    }
+    return "active";
   };
 
   const diagnose = (
@@ -504,6 +589,11 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
 
   const observe = (group: MutableGroup, at: EventLocation): void => {
     const render = renderCount(group);
+    const wasDivergent = group.divergent;
+    group.divergent = render > 1;
+    if (wasDivergent !== group.divergent) {
+      state.divergentGroups += group.divergent ? 1 : -1;
+    }
     if (render > 1 && group.lastRenderCount <= 1) {
       group.forkCount += 1;
     }
@@ -525,7 +615,47 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     state.maxRenderVariants = Math.max(state.maxRenderVariants, render);
   };
 
+  /**
+   * Count one prefix as confirmed, divergent, or saturated.
+   *
+   * A prefix is confirmed when no live group renders more than one picture and
+   * none is saturated. This is the per-state rate the audit needs alongside the
+   * strict per-log headline.
+   */
+  const prefixState = (): "confirmed" | "divergent" | "saturated" => {
+    if (state.divergentGroups > 0) {
+      return "divergent";
+    }
+    return state.saturatedGroupsLive > 0 ? "saturated" : "confirmed";
+  };
+
+  const observePrefix = (stable: boolean): void => {
+    const outcome = prefixState();
+    state.prefixes.total += 1;
+    if (outcome === "divergent") {
+      state.prefixes.divergent += 1;
+    } else if (outcome === "saturated") {
+      state.prefixes.saturated += 1;
+    } else {
+      state.prefixes.confirmed += 1;
+    }
+    if (!stable) {
+      return;
+    }
+    state.prefixes.stableTotal += 1;
+    if (outcome === "divergent") {
+      state.prefixes.stableDivergent += 1;
+    } else if (outcome === "saturated") {
+      state.prefixes.stableSaturated += 1;
+    } else {
+      state.prefixes.stableConfirmed += 1;
+    }
+  };
+
   const retire = (group: MutableGroup, at: EventLocation): void => {
+    // The divergence/saturation counters are updated by `observe`, which every
+    // retirement path calls after the final variant change. Decrementing here
+    // too would double-count the empty-group transition.
     group.live = false;
     group.leftAt = at;
     if (state.groups.get(group.key) === group) {
@@ -547,6 +677,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
       cap,
       everDivergent: false,
       firstForkAt: null,
+      divergent: false,
       forkCount: 0,
       id: `g${state.nextGroupId}`,
       key,
@@ -603,12 +734,14 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
         group,
       );
       group.saturated = true;
+      state.saturatedGroupsLive += 1;
       group.everDivergent = true;
       observe(group, at);
       return;
     }
     if (out.size > cap) {
       group.saturated = true;
+      state.saturatedGroupsLive += 1;
       group.variants = new Map(
         [...out.entries()].sort(([left], [right]) => left.localeCompare(right)).slice(0, cap),
       );
@@ -749,7 +882,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     return {
       ...value,
       damage,
-      hp: lethal ? value.hp : { ...value.hp, min: Math.max(value.hp.min, damage) },
+      hp: lethal ? value.hp : { ...value.hp, min: Math.max(value.hp.min, damage + 1) },
     };
   };
 
@@ -800,12 +933,25 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     amount: number,
     lethal: boolean,
     at: EventLocation,
+    zone: "active" | "bench" | null = null,
   ): void => {
     const group = resolveGroup(target, "damage", at);
     if (group === null) {
       return;
     }
-    applyToAny(group, at, (value) => damageValue(value, amount, lethal));
+    const inZone = (value: MaterialValue): boolean => zone === null || value.zone === zone;
+    if (!hasMatch(group, inZone)) {
+      diagnose(
+        "TargetZoneUnreachable",
+        "warning",
+        `an attack that can only hit the Active Spot names ${target.name}, which the ledger has on the Bench`,
+        at,
+        group,
+      );
+      applyToAny(group, at, (value) => damageValue(value, amount, lethal));
+      return;
+    }
+    replaceOne(group, at, inZone, (value) => damageValue(value, amount, lethal));
   };
 
   const healGroup = (
@@ -856,7 +1002,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     const preferred = group.id === state.active[group.side]
       ? (value: MaterialValue): boolean => value.zone === "active"
       : (value: MaterialValue): boolean => value.zone === "bench";
-    const lethal = (value: MaterialValue): boolean => value.damage > value.hp.min;
+    const lethal = (value: MaterialValue): boolean => value.damage >= value.hp.min;
 
     const options = new Map<string, KnockoutOption>();
     for (const values of group.variants.values()) {
@@ -887,7 +1033,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     state.pending.set(group.key, { at, group, options: [...options.values()] });
 
     const lethalOptions = [...options.values()].filter((option) =>
-      option.removed.damage > option.removed.hp.min);
+      option.removed.damage >= option.removed.hp.min);
     if (lethalOptions.length === 0) {
       diagnose(
         "KnockoutUnproven",
@@ -1336,6 +1482,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
       const opposite = state.pending.get(keyOf(otherSide(event.body.side), event.body.name));
       if (direct !== undefined || opposite !== undefined) {
         handleDetach(event.body, event.cards, event.count, at);
+        observePrefix(false);
         return;
       }
     }
@@ -1359,6 +1506,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
           event.amount,
           knockoutFollows(events, index, event.target.side, event.target.name),
           at,
+          targetZone(event.source, event.attack),
         );
         break;
       case "devolve":
@@ -1439,6 +1587,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
       default:
         break;
     }
+    observePrefix(event.kind === "endTurn" || event.kind === "endGame");
   });
 
   commitAllKnockouts();
@@ -1521,6 +1670,7 @@ export const runLedger = (events: readonly GameEvent[], options: LedgerOptions =
     liveGroups,
     maxInternalVariants: state.maxInternalVariants,
     maxRenderVariants: state.maxRenderVariants,
+    prefixes: { ...state.prefixes },
     saturated: groups.some((group) => group.saturated),
     unexecutable,
   };

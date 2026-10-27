@@ -33,6 +33,16 @@ export const createCensusAudit = () => ({
   neverConfirmedMultiGroup: 0,
   neverConfirmedSingleGroup: 0,
   parseFailures: 0,
+  prefixes: {
+    confirmed: 0,
+    divergent: 0,
+    saturated: 0,
+    stableConfirmed: 0,
+    stableDivergent: 0,
+    stableSaturated: 0,
+    stableTotal: 0,
+    total: 0,
+  },
   saturatedLogs: 0,
   saturatedNeverConfirmed: 0,
   singletonDivergentGroups: 0,
@@ -44,33 +54,18 @@ const bump = (map, key, by = 1) => {
   map.set(key, (map.get(key) ?? 0) + by);
 };
 
-/**
- * Census one battle log.
- *
- * Returns `"parse-failure"`, `"lower-failure"`, `"unexecutable"`, or the
- * census's own `"never-confirmed"` / `"confirmed-late"` / `"confirmed"`.
- * Nothing throws: a corpus has bad rows.
- */
-export const censusLog = (audit, raw) => {
-  audit.logs += 1;
-  const locale = detectBattleLogLanguage(raw);
-  bump(audit.locales, locale);
-
-  const parsed = parseBattleLog(raw, { locale });
-  if (!parsed.ok) {
-    audit.parseFailures += 1;
-    return "parse-failure";
-  }
-
-  const lowered = lower(parsed.value, raw);
-  if (!lowered.ok) {
-    audit.lowerFailures += 1;
-    return "lower-failure";
-  }
-
-  const result = census(lowered.value.events);
+/** Fold one census result into the accumulator. */
+const recordCensus = (audit, result) => {
   audit.groups += result.groups.length;
   audit.liveGroupsAtEnd += result.liveGroups.length;
+  audit.prefixes.total += result.prefixes.total;
+  audit.prefixes.confirmed += result.prefixes.confirmed;
+  audit.prefixes.divergent += result.prefixes.divergent;
+  audit.prefixes.saturated += result.prefixes.saturated;
+  audit.prefixes.stableTotal += result.prefixes.stableTotal;
+  audit.prefixes.stableConfirmed += result.prefixes.stableConfirmed;
+  audit.prefixes.stableDivergent += result.prefixes.stableDivergent;
+  audit.prefixes.stableSaturated += result.prefixes.stableSaturated;
   const divergent = result.liveGroups.filter((group) => group.renderVariants > 1);
   if (result.neverConfirmed) {
     if (divergent.length === 1 && result.saturatedGroupsAtEnd === 0) {
@@ -100,12 +95,10 @@ export const censusLog = (audit, raw) => {
       audit.saturatedNeverConfirmed += 1;
     }
   }
-
   if (result.unexecutable) {
     audit.unexecutable += 1;
     return "unexecutable";
   }
-
   if (result.neverConfirmed) {
     audit.neverConfirmed += 1;
   }
@@ -115,11 +108,41 @@ export const censusLog = (audit, raw) => {
   if (result.confirmedLate) {
     audit.confirmedLate += 1;
   }
-
   if (result.neverConfirmed) {
     return "never-confirmed";
   }
   return result.confirmedLate ? "confirmed-late" : "confirmed";
+};
+
+/** Census a pre-lowered event stream, optionally with an oracle. */
+export const censusEvents = (audit, events, options = {}) =>
+  recordCensus(audit, census(events, options));
+
+/**
+ * Census one battle log.
+ *
+ * Returns `"parse-failure"`, `"lower-failure"`, `"unexecutable"`, or the
+ * census's own `"never-confirmed"` / `"confirmed-late"` / `"confirmed"`.
+ * Nothing throws: a corpus has bad rows.
+ */
+export const censusLog = (audit, raw) => {
+  audit.logs += 1;
+  const locale = detectBattleLogLanguage(raw);
+  bump(audit.locales, locale);
+
+  const parsed = parseBattleLog(raw, { locale });
+  if (!parsed.ok) {
+    audit.parseFailures += 1;
+    return "parse-failure";
+  }
+
+  const lowered = lower(parsed.value, raw);
+  if (!lowered.ok) {
+    audit.lowerFailures += 1;
+    return "lower-failure";
+  }
+
+  return recordCensus(audit, census(lowered.value.events));
 };
 
 /** A 95% Wilson score interval for a binomial proportion. */
@@ -166,10 +189,15 @@ export const toJson = (audit) => {
     logsFailedToParse: audit.parseFailures,
     maxInternalVariants: audit.maxInternalVariants,
     maxRenderVariants: audit.maxRenderVariants,
+    confirmedPrefixRate: audit.prefixes.total === 0 ? 0 : audit.prefixes.confirmed / audit.prefixes.total,
+    stablePrefixRate: audit.prefixes.stableTotal === 0
+      ? 0
+      : audit.prefixes.stableConfirmed / audit.prefixes.stableTotal,
     neverConfirmed: audit.neverConfirmed,
     neverConfirmedMultiGroup: audit.neverConfirmedMultiGroup,
     neverConfirmedSingleGroup: audit.neverConfirmedSingleGroup,
     neverConfirmedUnsaturated,
+    prefixes: audit.prefixes,
     saturatedLogs: audit.saturatedLogs,
     saturatedNeverConfirmed: audit.saturatedNeverConfirmed,
     singletonDivergentGroups: audit.singletonDivergentGroups,
@@ -203,6 +231,20 @@ export const formatReport = (audit) => {
   push(`    excluding saturated ${interval(report.neverConfirmedUnsaturated, report.logsExecutableUnsaturated)}`);
   push(`  ever divergent        ${interval(report.everDivergent, report.logsExecutable)}`);
   push(`  confirmed late        ${interval(report.confirmedLate, report.logsExecutable)}`);
+
+  push();
+  push("states (per prefix)");
+  push(`  confirmed             ${interval(report.prefixes.confirmed, report.prefixes.total)}`);
+  push(`  divergent             ${interval(report.prefixes.divergent, report.prefixes.total)}`);
+  push(`  saturated             ${interval(report.prefixes.saturated, report.prefixes.total)}`);
+  push(`  prefixes              ${report.prefixes.total}`);
+
+  push();
+  push("turn-boundary states");
+  push(`  confirmed             ${interval(report.prefixes.stableConfirmed, report.prefixes.stableTotal)}`);
+  push(`  divergent             ${interval(report.prefixes.stableDivergent, report.prefixes.stableTotal)}`);
+  push(`  saturated             ${interval(report.prefixes.stableSaturated, report.prefixes.stableTotal)}`);
+  push(`  turn boundaries       ${report.prefixes.stableTotal}`);
 
   push();
   push("unexecutable is a gate, not a figure");

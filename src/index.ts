@@ -45,6 +45,7 @@ export type {
 } from "./events.js";
 export { lower, type LowerOptions } from "./lowering.js";
 export { census, type CensusResult } from "./census.js";
+export type { CardAttack, CardOracle, CardPrinting } from "./oracle.js";
 export {
   runLedger,
   type HpInterval,

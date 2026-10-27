@@ -45,6 +45,21 @@ export interface CensusResult {
   readonly saturatedGroups: number;
   readonly unexecutable: boolean;
   readonly diagnostics: readonly LedgerDiagnostic[];
+  /** Per-prefix confirmation counts across the whole log. */
+  readonly prefixes: {
+    readonly total: number;
+    readonly confirmed: number;
+    readonly divergent: number;
+    readonly saturated: number;
+    readonly stableTotal: number;
+    readonly stableConfirmed: number;
+    readonly stableDivergent: number;
+    readonly stableSaturated: number;
+  };
+  /** `confirmed / total`, or 0 when the log has no prefixes. */
+  readonly confirmedPrefixRate: number;
+  /** `stableConfirmed / stableTotal`, or 0 when the log has no turn boundary. */
+  readonly stablePrefixRate: number;
 }
 
 /** Run the ledger and reduce it to the figures the audit reports. */
@@ -56,6 +71,7 @@ export const census = (events: readonly GameEvent[], options: LedgerOptions = {}
   const neverConfirmed = liveDivergent.length > 0 || liveSaturated.length > 0;
   return {
     confirmedLate: everDivergent && !neverConfirmed,
+    confirmedPrefixRate: run.prefixes.total === 0 ? 0 : run.prefixes.confirmed / run.prefixes.total,
     diagnostics: run.diagnostics,
     divergentGroupsAtEnd: liveDivergent.length,
     everDivergent,
@@ -65,8 +81,12 @@ export const census = (events: readonly GameEvent[], options: LedgerOptions = {}
     maxInternalVariants: run.maxInternalVariants,
     maxRenderVariants: run.maxRenderVariants,
     neverConfirmed,
+    prefixes: run.prefixes,
     saturatedGroups: run.groups.filter((group) => group.saturated).length,
     saturatedGroupsAtEnd: liveSaturated.length,
+    stablePrefixRate: run.prefixes.stableTotal === 0
+      ? 0
+      : run.prefixes.stableConfirmed / run.prefixes.stableTotal,
     unexecutable: run.unexecutable,
   };
 };

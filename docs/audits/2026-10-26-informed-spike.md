@@ -6,6 +6,9 @@ Solver: `@dierkens.dev/ptcgl-battle-log-state` at `8313276`
 Corpus: 411 games across 5 workspaces, Firestore `workspaces/*/games/*.rawLog`
 Card data: PokeDojo's `cards` collection, read-only; 254 names, 2,703 printings
 
+See [the export-defect and solvability findings](2026-10-27-export-defect-and-solvability.md)
+for the template analysis behind the side bug and the fix order.
+
 ## The question
 
 The bare census left 81.2% of logs never confirmed and only a 36.8% confirmed

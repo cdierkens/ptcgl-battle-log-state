@@ -261,4 +261,6 @@ conclusion is unchanged.
 targetability. It reaches **79.2% of identity groups** but only **58.1% of
 turn-boundary boards**, so card data alone does not make the board ~80%
 solvable. The remaining gap is the side bug, hidden-zone moves, unproven
-knockouts, and cross-group correlation — not more card fields.
+knockouts, and cross-group correlation — not more card fields. See
+[the export-defect findings](2026-10-27-export-defect-and-solvability.md) for the
+template evidence and the fix order.

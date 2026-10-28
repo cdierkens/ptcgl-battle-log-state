@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { benchLimitFromText, counterSpreadFromText, leavesPlayFromText } from "../card-text.js";
+import { benchLimitFromText, counterSpreadFromText, knocksOutFromText, leavesPlayFromText } from "../card-text.js";
 
 describe("reading a counter spread from card text", () => {
   it("reads an each-spread with its owner, ability rule, and exception", () => {
@@ -51,5 +51,22 @@ describe("reading a Stadium's Bench limit", () => {
     expect(benchLimitFromText("Each player who has any Tera Pokémon in play can have up to 8 Pokémon on their Bench."))
       .toBe(8);
     expect(benchLimitFromText("Each Pokémon in play has no Weakness.")).toBeNull();
+  });
+});
+
+describe("reading whom an effect Knocks Out outright", () => {
+  it("reads the opponent's Active, the acting Pokémon, or both, dropping conditions", () => {
+    expect(knocksOutFromText("If your opponent's Active Pokémon has exactly 6 damage counters on it, that Pokémon is Knocked Out."))
+      .toBe("opponent");
+    expect(knocksOutFromText("Flip 2 coins. If both of them are heads, the Defending Pokémon is Knocked Out.")).toBe("opponent");
+    expect(knocksOutFromText("Once during your turn, you may put 13 damage counters on 1 of your opponent's Pokémon. If you use this Ability, this Pokémon is Knocked Out."))
+      .toBe("self");
+    expect(knocksOutFromText("Both Active Pokémon are Knocked Out.")).toBe("both");
+  });
+
+  it("does not read a reactive or conditional knockout", () => {
+    expect(knocksOutFromText("If this Pokémon is damaged by an attack, flip a coin. If heads, the Attacking Pokémon is Knocked Out."))
+      .toBeNull();
+    expect(knocksOutFromText("If this Pokémon is Knocked Out by damage from an attack, take 1 more Prize card.")).toBeNull();
   });
 });

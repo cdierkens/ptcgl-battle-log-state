@@ -1,4 +1,4 @@
-import type { CounterSpread } from "./oracle.js";
+import type { CounterSpread, KnockoutReach } from "./oracle.js";
 
 const WHO = String.raw`(of your opponent's |of your )?(Benched )?Pokémon`;
 const EACH = new RegExp(
@@ -75,4 +75,32 @@ const BENCH_LIMIT = /\bcan have up to (\d+) Pokémon on (?:their|your) Bench\b/i
 export const benchLimitFromText = (effect: string): number | null => {
   const match = BENCH_LIMIT.exec(effect);
   return match?.[1] === undefined ? null : Number(match[1]);
+};
+
+const KNOCKED_OUT = /\b(?:is|are) Knocked Out\.$/i;
+const OPPONENT_ACTIVE = /\b(?:your opponent's Active Pokémon|the Defending Pokémon)\b/i;
+
+/**
+ * Whom English effect text Knocks Out outright. Conditions (coin flips, exact
+ * counter totals) are dropped, so it is a ceiling; reactive text such as
+ * "the Attacking Pokémon" is not recognised.
+ */
+export const knocksOutFromText = (effect: string): KnockoutReach => {
+  let self = false;
+  let opponent = false;
+  for (const sentence of effect.replace(/[’‘]/g, "'").split(/(?<=\.)\s+/)) {
+    const trimmed = sentence.trim();
+    if (!KNOCKED_OUT.test(trimmed)) {
+      continue;
+    }
+    if (/\bboth Active Pokémon are Knocked Out\.$/i.test(trimmed)) {
+      self = true;
+      opponent = true;
+    } else if (/\bthis Pokémon is Knocked Out\.$/i.test(trimmed)) {
+      self = true;
+    } else if (OPPONENT_ACTIVE.test(trimmed)) {
+      opponent = true;
+    }
+  }
+  return self && opponent ? "both" : self ? "self" : opponent ? "opponent" : null;
 };

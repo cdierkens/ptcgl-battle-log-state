@@ -516,6 +516,9 @@ export const MAPPED: Readonly<Record<string, Handler>> = {
   blog_loc_play_to_active: play("active"),
   blog_loc_play_to_bench: play("bench"),
   blog_loc_played_card: play(null),
+  blog_loc_selected_option: (input) => [
+    { at: at(input), kind: "choice", option: need(input, "selectedOption"), side: player(input, "playerName") },
+  ],
   blog_loc_played_to_active: play("active"),
   blog_loc_played_to_bench: play("bench"),
   blog_loc_played_to_fallback: play(null),
@@ -686,7 +689,7 @@ export const IGNORED: Readonly<Record<IgnoreReason, readonly string[]>> = {
     "blog_loc_oncepergame_used", "blog_loc_paper", "blog_loc_performed_action",
     "blog_loc_reconnect", "blog_loc_reveal_multi", "blog_loc_rock",
     "blog_loc_rps_choice", "blog_loc_rps_won", "blog_loc_scissors",
-    "blog_loc_selected_coinface", "blog_loc_selected_option", "blog_loc_shuffled_deck",
+    "blog_loc_selected_coinface", "blog_loc_shuffled_deck",
     "blog_loc_shuffled_fallback", "blog_loc_shuffled_hand", "blog_loc_shuffled_prizes",
     "blog_loc_sudden_death", "blog_loc_tails", "blog_loc_tera_effect",
     "blog_loc_timeout", "blog_loc_took_mulligan_multi", "blog_loc_took_mulligan_single",

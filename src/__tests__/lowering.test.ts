@@ -41,8 +41,8 @@ describe("the lowering table", () => {
   });
 
   it("keeps the tables honest about their size", () => {
-    expect(Object.keys(MAPPED)).toHaveLength(69);
-    expect(Object.values(IGNORED).flat()).toHaveLength(159);
+    expect(Object.keys(MAPPED)).toHaveLength(70);
+    expect(Object.values(IGNORED).flat()).toHaveLength(158);
   });
 });
 
@@ -244,6 +244,12 @@ describe("lowering a line whose key the parser could not determine", () => {
     for (const lowered of [en, fr]) {
       expect(lowered.events).toMatchObject([{ kind: "hiddenPlay", side: "self" }]);
     }
+  });
+
+  it("lowers a chosen option to its side and name", () => {
+    const lowered = lowerLocale("en", ["Alice's Turn", "Alice chose Destined Fight"]);
+
+    expect(lowered.events).toMatchObject([{ kind: "choice", option: "Destined Fight", side: "self" }]);
   });
 
   it("reports it, rather than picking, when the candidates lower differently", () => {

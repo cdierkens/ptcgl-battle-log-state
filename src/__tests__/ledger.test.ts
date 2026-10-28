@@ -4,7 +4,7 @@ import { parseBattleLog } from "@dierkens.dev/ptcgl-battle-log-parser";
 import { describe, expect, it } from "vitest";
 
 import type { CardRef, EventLocation, GameEvent } from "../events.js";
-import type { CardOracle, CounterSpread } from "../oracle.js";
+import type { CardOracle, CounterSpread, KnockoutReach } from "../oracle.js";
 import { census } from "../census.js";
 import { runLedger } from "../ledger.js";
 import { lower } from "../lowering.js";
@@ -770,7 +770,7 @@ describe("the card oracle", () => {
       cardName === name
         ? [{
             abilities: null,
-            attacks: [{ canHitBench, leavesPlay: null, name: "Test Attack", spread: null }],
+            attacks: [{ canHitBench, knocksOut: null, leavesPlay: null, name: "Test Attack", spread: null }],
             evolvesFrom: null,
             hp,
             prizeValue: null,
@@ -881,6 +881,32 @@ describe("the card oracle", () => {
     expect(codes("Pidgey")).toContain("KnockoutUnproven");
   });
 
+  it("accepts a knockout that the last effect's text causes, including a copied attack", () => {
+    const knocking = (attack: string, knocksOut: KnockoutReach): CardOracle => ({
+      attack: (name) => (name === attack ? [{ canHitBench: false, knocksOut, leavesPlay: null, name, spread: null }] : null),
+      printings: (name) => [{
+        abilities: [],
+        attacks: [{ canHitBench: false, knocksOut, leavesPlay: null, name: attack, spread: null }],
+        evolvesFrom: null,
+        hp: name === "Absol" ? 200 : 160,
+        prizeValue: null,
+      }],
+    });
+    const codes = (used: string, chose: string | null, reach: KnockoutReach) => runLedger([
+      play("self", "Pidgey", "active", 1),
+      play("opponent", "Absol", "active", 2),
+      { at: loc(3), attack: used, kind: "attack", source: card("opponent", "Absol") },
+      ...(chose === null ? [] : [{ at: loc(4), kind: "choice", option: chose, side: "opponent" } as const]),
+      knockout("self", "Pidgey", 5),
+    ], { oracle: knocking("Terminal Period", reach) }).diagnostics.map((diagnostic) => diagnostic.code);
+
+    expect(codes("Terminal Period", null, "opponent")).not.toContain("KnockoutUnproven");
+    expect(codes("Seek Inspiration", "Terminal Period", "both")).not.toContain("KnockoutUnproven");
+    expect(codes("Seek Inspiration", null, "opponent")).toContain("KnockoutUnproven");
+    expect(codes("Terminal Period", null, "self")).toContain("KnockoutUnproven");
+    expect(codes("Terminal Period", null, null)).toContain("KnockoutUnproven");
+  });
+
   it("prunes a world where a body survived more damage than its card's HP", () => {
     const run = runLedger([
       play("self", "Slowpoke", "active", 1),
@@ -957,11 +983,14 @@ describe("effects centred on the acting card", () => {
     readonly spread?: CounterSpread;
     readonly leavesPlay?: "hand" | "deck";
     readonly canHitBench?: boolean;
+    readonly knocksOut?: KnockoutReach;
   };
   const cards = (table: Record<string, { readonly abilities?: readonly Effect[]; readonly attacks?: readonly Effect[] }>) => ({
     printings: (name: string) => {
       const entry = table[name];
-      const effect = (item: Effect) => ({ leavesPlay: item.leavesPlay ?? null, name: item.name, spread: item.spread ?? null });
+      const effect = (item: Effect) => ({
+        knocksOut: item.knocksOut ?? null, leavesPlay: item.leavesPlay ?? null, name: item.name, spread: item.spread ?? null,
+      });
       return entry === undefined
         ? null
         : [{

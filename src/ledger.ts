@@ -1757,6 +1757,42 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     }));
   };
 
+  /**
+   * Whether the latest attack or ability in this phase Knocks Out `target` by
+   * its text alone (Terminal Period), including an attack it copied by choice
+   * (Seek Inspiration choosing Destined Fight). Text conditions are not checked.
+   */
+  const effectKnocksOut = (index: number, target: CardRef): boolean => {
+    const at = events[index]?.at;
+    if (oracle === undefined || at === undefined) {
+      return false;
+    }
+    const chosen: string[] = [];
+    for (let back = index - 1; back >= 0; back -= 1) {
+      const event = events[back];
+      if (event === undefined || event.at.phaseIndex !== at.phaseIndex) {
+        return false;
+      }
+      if (event.kind === "choice") {
+        chosen.push(event.option);
+      }
+      const source = event.kind === "attack" || event.kind === "damage" ? event.source : null;
+      const name = event.kind === "attack" || event.kind === "damage" ? event.attack : null;
+      if (source === null || name === null) {
+        continue;
+      }
+      const own = (oracle.printings(source.name) ?? [])
+        .flatMap((printing) => [...printing.attacks, ...(printing.abilities ?? [])])
+        .filter((effect) => effect.name === name);
+      const copied = chosen.flatMap((option) => oracle.attack?.(option) ?? []);
+      const reach = source.side !== target.side
+        ? ["opponent", "both"]
+        : source.name === target.name ? ["self", "both"] : [];
+      return [...own, ...copied].some((effect) => effect.knocksOut !== null && reach.includes(effect.knocksOut));
+    }
+    return false;
+  };
+
   const startKnockout = (target: CardRef, at: EventLocation, index: number): void => {
     const group = resolveGroup(target, "knockout", at);
     if (group === null) {
@@ -1792,7 +1828,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
 
     const lethalOptions = [...options.values()].filter((option) =>
       option.removed.every((value) => value.damage >= value.hp.min));
-    if (lethalOptions.length === 0 && !actedLast(events, index, target)) {
+    if (lethalOptions.length === 0 && !actedLast(events, index, target) && !effectKnocksOut(index, target)) {
       diagnose(
         "KnockoutUnproven",
         "warning",
@@ -2337,6 +2373,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       case "endGame":
       case "endTurn":
       case "attack":
+      case "choice":
         break;
       case "heal":
         if (event.ownerPrinted) {

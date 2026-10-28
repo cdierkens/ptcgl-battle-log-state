@@ -40,13 +40,21 @@ export interface CardAttack {
   readonly spread: CounterSpread | null;
   /** Where the effect puts the acting Pokémon and its attached cards, if it leaves play. */
   readonly leavesPlay: "hand" | "deck" | null;
+  readonly knocksOut: KnockoutReach;
 }
+
+/**
+ * Whom an effect's text Knocks Out outright, ignoring its conditions:
+ * `opponent` is the opponent's Active, `self` the acting Pokémon, `both` both Actives.
+ */
+export type KnockoutReach = "opponent" | "self" | "both" | null;
 
 /** One Ability. Older powers (Poké-Power, Poké-Body) are not Abilities. */
 export interface CardAbility {
   readonly name: string;
   readonly spread: CounterSpread | null;
   readonly leavesPlay: "hand" | "deck" | null;
+  readonly knocksOut: KnockoutReach;
 }
 
 /** One printing of a card. */
@@ -76,4 +84,9 @@ export interface CardOracle {
   readonly printings: (name: string) => readonly CardPrinting[] | null;
   /** Facts for a Stadium name, or `null` when it is not a Stadium or unknown. */
   readonly stadium?: (name: string) => StadiumFacts | null;
+  /**
+   * Every printed attack with this name, or `null` when unknown. Used for an
+   * attack copied from a card the log may not name (Night Joker, Seek Inspiration).
+   */
+  readonly attack?: (name: string) => readonly CardAttack[] | null;
 }

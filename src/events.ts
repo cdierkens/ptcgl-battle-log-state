@@ -183,6 +183,13 @@ export interface HiddenPlayEvent extends EventBase {
   readonly side: Side;
 }
 
+/** "X chose Y": an option picked during an effect, such as the attack a copy effect uses. */
+export interface ChoiceEvent extends EventBase {
+  readonly kind: "choice";
+  readonly side: Side;
+  readonly option: string;
+}
+
 /** A card moved to another zone by an effect. */
 export interface MoveCardEvent extends EventBase {
   readonly kind: "moveCard";
@@ -252,6 +259,7 @@ export interface PreventedEvent extends EventBase {
 export type GameEvent =
   | AttackEvent
   | AttachEvent
+  | ChoiceEvent
   | CounterDamageEvent
   | DamageEvent
   | DevolveEvent

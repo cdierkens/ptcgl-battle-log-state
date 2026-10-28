@@ -1153,8 +1153,8 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     what: string,
     capped = false,
   ): void => {
-    // The client logs a heal's effect amount, not what it removed; it logs only a damaged body.
-    const exact = (value: MaterialValue): boolean => (capped ? value.damage > 0 : value.damage >= amount);
+    // A heal line prints the effect's amount; it removes up to that, with a floor of 0.
+    const exact = (value: MaterialValue): boolean => capped || value.damage >= amount;
     const exactPossible = hasMatch(group, exact);
     if (!exactPossible) {
       diagnose("HealOverflow", "warning", `${what} exceeds the tracked damage on ${name}`, at, group);
@@ -1250,7 +1250,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
    * One side only: elimination, as `resolveGroup` does. Both sides: each group
    * forks into "received" and "did not", because the line cannot say which.
    * The groups are independent, so the fork loses the "exactly one" link; later
-   * evidence (a heal larger than the damage left) prunes each side on its own.
+   * evidence (moving more counters than the damage left) prunes each side on its own.
    */
   const placeCounters = (
     target: CardRef,
@@ -1290,9 +1290,10 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
   /**
    * Remove counters named by a line that does not name the card's owner.
    *
-   * The counters must have been on the card, so a side whose group has no body
-   * carrying them is eliminated. Both sides viable: each forks into "lost them"
-   * and "did not". Neither viable: the printed side reports the overflow.
+   * Moved counters must have been on the card, so a side whose group has no
+   * body carrying them is eliminated; a heal (`capped`) eliminates no side.
+   * Both sides viable: each forks into "lost them" and "did not". Neither
+   * viable: the printed side reports the overflow.
    */
   const removeCounters = (
     target: CardRef,
@@ -1310,7 +1311,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       }
       return;
     }
-    const carries = (value: MaterialValue): boolean => (capped ? value.damage > 0 : value.damage >= amount);
+    const carries = (value: MaterialValue): boolean => capped || value.damage >= amount;
     const viable = [printed, other].filter((group) => hasMatch(group, carries));
     const only = viable.length === 1 ? viable[0] : undefined;
     if (only !== undefined) {

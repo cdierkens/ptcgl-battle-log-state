@@ -465,28 +465,29 @@ describe("the rest of the transition table", () => {
     to,
   });
 
-  it("reads a heal line as up to its amount, and reports one on an undamaged body", () => {
-    // The client logs the effect's amount, not what it removed, and only for a damaged body.
-    const codes = (heals: readonly GameEvent[]) => runLedger([
+  it("reads a heal line as up to its amount, with a floor of 0", () => {
+    // The client prints the effect's amount, not what it removed, even on an undamaged body.
+    const run = (heals: readonly GameEvent[]) => runLedger([
       play("self", "Slowpoke", "active", 1),
-      damage("self", "Slowpoke", 30, 2),
       ...heals,
-    ]).diagnostics.map((diagnostic) => diagnostic.code);
+      damage("self", "Slowpoke", 30, 3),
+    ]);
 
-    expect(codes([heal("self", "Slowpoke", 10, 3), heal("self", "Slowpoke", 40, 4)])).not.toContain("HealOverflow");
-    expect(codes([heal("self", "Slowpoke", 40, 3), heal("self", "Slowpoke", 10, 4)])).toContain("HealOverflow");
+    expect(run([heal("self", "Slowpoke", 40, 2)]).diagnostics.map((diagnostic) => diagnostic.code))
+      .not.toContain("HealOverflow");
+    expect(run([heal("self", "Slowpoke", 40, 2)]).liveGroups[0]?.hp).toEqual([{ max: null, min: 31 }]);
   });
 
-  it("finds an unnamed-owner heal's side by which body has any damage", () => {
+  it("keeps both sides for an unnamed-owner heal, since a heal needs no damage", () => {
     const run = runLedger([
       play("self", "Slowpoke", "bench", 1),
       play("opponent", "Slowpoke", "bench", 2),
       damage("opponent", "Slowpoke", 20, 3),
-      heal("self", "Slowpoke", 30, 4, false),
+      heal("self", "Slowpoke", 10, 4, false),
     ]);
 
-    expect(run.diagnostics.map((diagnostic) => diagnostic.code)).toContain("SideMismatch");
-    expect(run.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain("HealOverflow");
+    expect(run.diagnostics.filter((diagnostic) => diagnostic.at.line === 4).map((diagnostic) => diagnostic.code))
+      .toEqual(["SideAmbiguous"]);
   });
 
   it("learns nothing about HP from a hit the card's own effect heals back", () => {
@@ -547,8 +548,9 @@ describe("the rest of the transition table", () => {
     const run = runLedger([
       play("self", "Slowpoke", "bench", 1),
       play("opponent", "Slowpoke", "bench", 2),
+      play("opponent", "Pidgey", "active", 2),
       damage("opponent", "Slowpoke", 30, 3),
-      heal("self", "Slowpoke", 20, 4, false),
+      moveCounters("self", "Slowpoke", "opponent", "Pidgey", 2, 4),
     ]);
 
     expect(run.diagnostics.filter((diagnostic) => diagnostic.at.line === 4).map((diagnostic) => diagnostic.code))

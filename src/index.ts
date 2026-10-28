@@ -49,8 +49,8 @@ export type {
 } from "./events.js";
 export { lower, type LowerOptions } from "./lowering.js";
 export { census, type CensusResult } from "./census.js";
-export type { CardAbility, CardAttack, CardOracle, CardPrinting, CounterSpread, HpReduction, KnockoutReach, Stage, StadiumFacts } from "./oracle.js";
-export { benchLimitFromText, counterSpreadFromText, hpReductionFromText, knocksOutFromText, leavesPlayFromText } from "./card-text.js";
+export type { CardAbility, CardAttack, CardOracle, CardPrinting, CounterSpread, HpReduction, KnockoutReach, Stage, StadiumFacts, TrainerFacts } from "./oracle.js";
+export { benchLimitFromText, counterSpreadFromText, hpReductionFromText, knocksOutFromText, leavesPlayFromText, replacesInPlayFromText } from "./card-text.js";
 export {
   runLedger,
   type HpInterval,

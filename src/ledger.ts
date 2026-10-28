@@ -1562,6 +1562,65 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
   };
 
   /**
+   * "moved A to the Bench" then "moved B to the discard pile" under a Trainer
+   * whose text replaces a Pokémon in play is A taking B's place: B's zone and
+   * attached cards carry over. The client prints "Bench" whatever B's zone was,
+   * and prints any damage counters that carry over as their own line.
+   */
+  const replaceInPlay = (event: MoveCardEvent, index: number): boolean => {
+    const outgoing = events[index + 1];
+    if (
+      oracle?.trainer === undefined
+      || (event.to !== "bench" && event.to !== "active")
+      || outgoing?.kind !== "moveCard"
+      || outgoing.to !== "discard"
+      || outgoing.card.side !== event.card.side
+      || outgoing.at.phaseIndex !== event.at.phaseIndex
+    ) {
+      return false;
+    }
+    let causeIndex = index - 1;
+    let cause = events[causeIndex];
+    while (cause?.kind === "moveCard" && cause.to === "discard") {
+      causeIndex -= 1;
+      cause = events[causeIndex];
+    }
+    if (
+      cause?.kind !== "play"
+      || cause.zone !== null
+      || cause.card.side !== event.card.side
+      || cause.at.phaseIndex !== event.at.phaseIndex
+      || oracle.trainer(cause.card.name)?.replacesInPlay !== true
+    ) {
+      return false;
+    }
+    const group = state.groups.get(keyOf(outgoing.card.side, outgoing.card.name));
+    if (group === undefined) {
+      return false;
+    }
+    const wasActive = group.id === state.active[group.side];
+    const removed = removeAny(group, event.at, () => true);
+    if (removed.length === 0) {
+      return false;
+    }
+    const choices = new Map<string, MaterialValue>();
+    for (const value of removed) {
+      const incoming = makeValue(value.zone, initialHp(event.card.name), 0, value.attachments);
+      choices.set(valueKey(incoming), incoming);
+    }
+    const destination = place(event.card.side, event.card.name, [...choices.values()], event.at);
+    if (wasActive) {
+      const states = activeStates(group);
+      if (states.length > 0 && states.every((hasActive) => !hasActive)) {
+        state.active[group.side] = destination.id;
+      } else if (!states.every(Boolean)) {
+        state.active[group.side] = null;
+      }
+    }
+    return true;
+  };
+
+  /**
    * A move of X to hand or deck right after X's own effect (a bare "played X",
    * or X's attack or Ability) is X leaving play, when the card text says that
    * effect returns X with its attached cards there. Remove one body; without
@@ -2560,6 +2619,9 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
         }
         break;
       case "moveCard":
+        if (replaceInPlay(event, index)) {
+          break;
+        }
         moveCard(event.card, event.to, at);
         leavePlay(event, index);
         break;

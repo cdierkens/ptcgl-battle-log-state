@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { benchLimitFromText, counterSpreadFromText, hpReductionFromText, knocksOutFromText, leavesPlayFromText } from "../card-text.js";
+import { benchLimitFromText, counterSpreadFromText, hpReductionFromText, knocksOutFromText, leavesPlayFromText, replacesInPlayFromText } from "../card-text.js";
 
 describe("reading a counter spread from card text", () => {
   it("reads an each-spread with its owner, ability rule, and exception", () => {
@@ -51,6 +51,15 @@ describe("reading a Stadium's Bench limit", () => {
     expect(benchLimitFromText("Each player who has any Tera Pokémon in play can have up to 8 Pokémon on their Bench."))
       .toBe(8);
     expect(benchLimitFromText("Each Pokémon in play has no Weakness.")).toBeNull();
+  });
+});
+
+describe("reading whether a Trainer replaces a Pokémon in play", () => {
+  it("reads a switch that keeps attached cards on the new Pokémon", () => {
+    expect(replacesInPlayFromText(
+      "Choose a Basic Pokémon in your discard pile and switch it with 1 of your Basic Pokémon in play. Any attached cards, damage counters, Special Conditions, turns in play, and any other effects remain on the new Pokémon.",
+    )).toBe(true);
+    expect(replacesInPlayFromText("Switch your Active Pokémon with 1 of your Benched Pokémon.")).toBe(false);
   });
 });
 

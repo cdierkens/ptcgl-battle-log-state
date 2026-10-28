@@ -90,6 +90,11 @@ export const hpReductionFromText = (effect: string): HpReduction | null => {
 };
 
 const KNOCKED_OUT = /\b(?:is|are) Knocked Out\.$/i;
+
+const REPLACES = /\bswitch it with 1 of your (?:[\w-]+ )?Pokémon in play\b[^]*\bremain on the new Pokémon\b/i;
+
+/** Whether English Trainer text puts a Pokémon into play in place of one in play. */
+export const replacesInPlayFromText = (effect: string): boolean => REPLACES.test(effect);
 const OPPONENT_ACTIVE = /\b(?:your opponent's Active Pokémon|the Defending Pokémon)\b/i;
 
 /**

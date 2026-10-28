@@ -1346,6 +1346,55 @@ describe("a Stadium that raises the Bench limit", () => {
   });
 });
 
+describe("a Trainer that replaces a Pokémon in play", () => {
+  const tome = "Transformation Tome";
+  const oracle: CardOracle = {
+    printings: () => null,
+    trainer: (name: string) => ({ replacesInPlay: name === tome }),
+  };
+  const move = (name: string, to: "active" | "bench" | "discard", line: number): GameEvent =>
+    ({ at: loc(line), card: card("self", name), kind: "moveCard", to });
+  const swap = (incoming: string, outgoing: string, line: number): GameEvent[] => [
+    { at: loc(line), card: card("self", tome), kind: "play", zone: null },
+    move(tome, "discard", line + 1),
+    move(incoming, "bench", line + 2),
+    move(outgoing, "discard", line + 3),
+  ];
+  const codes = (events: readonly GameEvent[], options: { readonly oracle: CardOracle } = { oracle }) =>
+    runLedger(events, options).diagnostics.map((diagnostic) => diagnostic.code);
+  const full = [
+    play("self", "Pidgey", "active", 1),
+    ...["A", "B", "C", "D", "E"].map((name, offset) => play("self", name, "bench", 2 + offset)),
+  ];
+
+  it("puts the new Pokémon in the old one's place on a full Bench", () => {
+    expect(codes([...full, ...swap("Z", "E", 10)])).toEqual([]);
+    expect(codes([...full, ...swap("Z", "E", 10), play("self", "F", "bench", 20)])).toEqual(["BenchOverflow"]);
+    // A second A arrives; without the Trainer's text the move reads as A leaving the Active Spot.
+    expect(codes([...full, ...swap("A", "E", 10)])).toEqual([]);
+    expect(codes([...full, ...swap("A", "E", 10)], { oracle: { printings: () => null } })).toContain("BenchOverflow");
+  });
+
+  it("takes the Active Spot when it replaces the Active Pokémon", () => {
+    expect(codes([
+      ...full.slice(0, 1),
+      ...swap("Z", "Pidgey", 10),
+      move("Z", "active", 19),
+      { at: loc(20), card: card("self", "Z"), kind: "retreat" },
+    ])).toEqual([]);
+  });
+
+  it("keeps the old Pokémon's attached cards", () => {
+    expect(codes([
+      ...full.slice(0, 2),
+      attach("self", "A", "Grass Energy", 8),
+      ...swap("Z", "A", 10),
+      knockout("self", "Z", 20),
+      detach("self", "Z", ["Grass Energy"], 21),
+    ])).toEqual([]);
+  });
+});
+
 describe("a Stadium that reduces HP", () => {
   const stadium = (name: string, line: number): GameEvent =>
     ({ at: loc(line), card: card("self", name), kind: "play", zone: "stadium" });

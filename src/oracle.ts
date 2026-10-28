@@ -84,6 +84,15 @@ export interface StadiumFacts {
   readonly hpReduction: HpReduction | null;
 }
 
+/** What a Trainer card's effect does that the ledger must follow. */
+export interface TrainerFacts {
+  /**
+   * The effect puts a Pokémon into play in place of one in play, and attached
+   * cards stay on the new Pokémon (Transformation Tome).
+   */
+  readonly replacesInPlay: boolean;
+}
+
 export interface HpReduction {
   readonly stage: Stage;
   readonly amount: number;
@@ -98,6 +107,8 @@ export interface CardOracle {
   readonly printings: (name: string) => readonly CardPrinting[] | null;
   /** Facts for a Stadium name, or `null` when it is not a Stadium or unknown. */
   readonly stadium?: (name: string) => StadiumFacts | null;
+  /** Facts for a Trainer name, or `null` when it is not a Trainer or unknown. */
+  readonly trainer?: (name: string) => TrainerFacts | null;
   /**
    * Every printed attack with this name, or `null` when unknown. Used for an
    * attack copied from a card the log may not name (Night Joker, Seek Inspiration).

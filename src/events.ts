@@ -300,7 +300,6 @@ export type IgnoreReason =
   | "fragment"
   | "flavour"
   | "header"
-  | "restatement"
   | "settings"
   | "unmodelled";
 

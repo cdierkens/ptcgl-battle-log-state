@@ -81,7 +81,7 @@ means one *render-distinct* board, not one internal world.
 
 ### 3. Acceptance
 
-- `lower()` already collapses restatements and tags every event with
+- `lower()` tags every event with
   `at: {phaseIndex, turn, line}`, so the census can point at lines.
 - Fixtures first: the four vendored logs must produce a stable, explainable
   census. Add assertions for any fork they contain (beedrill's `Slowpoke ×3`,
@@ -102,9 +102,10 @@ means one *render-distinct* board, not one internal world.
 2. **`[cardName]` can hold a count phrase** (`5 cards`). The lowering records names
    verbatim and never interprets them (D35). Deciding whether a name is a card is
    the ledger's job, and "unmatched name" is the honest answer.
-3. **Restatements vs secondary damage.** A sub-entry attack repeating a main-entry
-   attack is the confirmation of it; `secondary_damage` has no attacker and is
-   never collapsed — two identical `Weedle took 110 damage` lines are two cards.
+3. **Repeated hits are real.** A sub-entry attack repeating a main-entry attack
+   is a second hit (Festival Lead), not a restatement (amended D21). Likewise
+   `secondary_damage` is never collapsed — two identical `Weedle took 110 damage`
+   lines are two cards.
 4. **The AST carries no line numbers.** The lowering numbers lines against the raw
    text; use `event.at.line` and never re-derive it.
 5. **Sides are deduced, not guessed.** One known player plus a second name is

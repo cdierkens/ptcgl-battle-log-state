@@ -696,7 +696,6 @@ export const IGNORED: Readonly<Record<IgnoreReason, readonly string[]>> = {
     "blog_loc_battle_log", "blog_loc_drawn_cards_grid_header", "blog_loc_export_damage_breakdown_label",
     "blog_loc_phase_checkup", "blog_loc_phase_setup", "blog_loc_phase_turn",
   ],
-  restatement: [],
   settings: [
     "blog_loc_export_copied", "blog_loc_settings_category_label", "blog_loc_settings_disable_vfx",
     "blog_loc_settings_entry_sort_order", "blog_loc_settings_hide_card_ids",
@@ -844,20 +843,6 @@ const createLineIndex = (rawText: string): ((raw: string) => number) => {
   };
 };
 
-const signatureOf = (event: GameEvent): string | null => {
-  if (event.kind !== "damage" || event.source === null || event.attack === null) {
-    return null;
-  }
-  return [
-    event.source.side,
-    event.source.name,
-    event.attack,
-    event.target.side,
-    event.target.name,
-    event.amount,
-  ].join("\u0000");
-};
-
 /** Options for lowering. */
 export interface LowerOptions {
   /** The local player's name, used to seed the side map when turn headers are absent. */
@@ -980,23 +965,17 @@ export const lower = (
 
   battleLog.phases.forEach((phase, phaseIndex) => {
     const turn = phase.kind === "Turn" ? phase.displayTurnNumber : null;
-    const seenDamage = new Set<string>();
 
     for (const main of phase.mainEntries) {
       const location: EventLocation = { line: lineOf(main.event.raw), phaseIndex, turn };
       let produced = run(main, location);
 
-      const breakdown = breakdownOf(main);
-      if (breakdown !== null) {
+      let breakdown = breakdownOf(main);
+      if (breakdown !== null && produced.some((event) => event.kind === "damage")) {
         produced = applyBreakdown(produced, breakdown);
+        breakdown = null;
       }
 
-      for (const event of produced) {
-        const signature = signatureOf(event);
-        if (signature !== null) {
-          seenDamage.add(signature);
-        }
-      }
       events.push(...produced);
 
       for (const sub of main.subEntries) {
@@ -1007,18 +986,14 @@ export const lower = (
           ignored.push({ at: subLocation, key: sub.event.templateKey, reason: "breakdown" });
           continue;
         }
-        const subEvents = run(sub, subLocation);
-        for (const event of subEvents) {
-          // D21: a sub-entry that repeats its phase's attack is the confirmation
-          // of it, not a second hit. Secondary damage has no attacker and is
-          // never collapsed — two identical Weedles really do both take damage.
-          const signature = signatureOf(event);
-          if (signature !== null && seenDamage.has(signature)) {
-            ignored.push({ at: subLocation, key: keyLabel(sub.event), reason: "restatement" });
-            continue;
-          }
-          events.push(event);
+        // A repeated attack line is a second hit (Festival Lead), never a restatement;
+        // its breakdown is printed under the main line that announced it.
+        let subEvents = run(sub, subLocation);
+        if (breakdown !== null && subEvents.some((event) => event.kind === "damage")) {
+          subEvents = applyBreakdown(subEvents, breakdown);
+          breakdown = null;
         }
+        events.push(...subEvents);
       }
     }
   });

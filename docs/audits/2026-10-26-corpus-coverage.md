@@ -50,7 +50,7 @@ Events produced across the corpus:
 exercises mapped code the regression suite does not.
 
 Ignored lines: flavour 8,472 · breakdown 1,094 · header 824 · unmodelled 409 ·
-fragment 205 · restatement 43.
+fragment 205 · restatement 43 (since removed; see amended D21).
 
 ## Findings
 
@@ -137,9 +137,9 @@ the published parser `1.2.0`:
 | `knockout` events | 1,811 | 1,811 |
 
 Every downgraded line became the damage event it always was. Damage rises by 159
-rather than 183 because 24 of them are restatements (D21) — a second printing of
-an attack already counted — which now collapse correctly instead of being
-counted as an attack with no damage.
+rather than 183 because 24 of them were collapsed as restatements (D21). That
+was wrong: they are Festival Lead second attacks, and amended D21 keeps them as
+hits (2026-10-27).
 
 The same fix exposed F3 in a fixture: beedrill's recovered damage line carries a
 partial breakdown, which is what showed the original equality check to be wrong.

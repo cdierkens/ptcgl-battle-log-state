@@ -86,15 +86,17 @@ describe("lowering the fixtures", () => {
     expect(weedle.map((event) => event.amount)).toEqual([110, 110]);
   });
 
-  it("collapses a restated attack instead of dealing its damage twice", () => {
+  it("keeps a Festival Lead second attack as a second hit with its own breakdown", () => {
     const lowered = lowerFixture("dipplin-vs-mega-excadrill");
     const wave = damages(lowered.events).filter(
-      (event) => event.attack === "Do the Wave" && event.target.name === "Mega Excadrill ex",
+      (event) => event.attack === "Do the Wave" && event.target.name === "Fezandipiti ex",
     );
 
-    expect(wave).toHaveLength(1);
-    expect(wave[0]?.amount).toBe(180);
-    expect(lowered.ignored.some((entry) => entry.reason === "restatement")).toBe(true);
+    // 130 + 130 Knocks Out a 210 HP Fezandipiti ex; one hit would not.
+    expect(wave.map((event) => event.amount)).toEqual([130, 130]);
+    expect(wave.map((event) => event.at.line)).toEqual([235, 245]);
+    expect(wave[1]?.breakdown).toEqual(wave[0]?.breakdown);
+    expect(wave[1]?.breakdown).not.toBeUndefined();
   });
 
   it("carries the printed breakdown as data", () => {

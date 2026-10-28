@@ -92,19 +92,22 @@ seven locales. Locale, prose, and placeholder names stop at this layer.
 
 ### Three traps the fixtures already contain
 
-**Restatement.** `dipplin-vs-mega-excadrill.log` carries the same attack twice,
+**Repeated attacks.** `dipplin-vs-mega-excadrill.log` carries the same attack twice,
 once as a main entry and once as a sub-entry just before the knockout:
 
 ```text
 168  cdierkens's Dipplin used Do the Wave on Flyfrod’s Mega Excadrill ex for 180 damage. …
+175  cdierkens's Dipplin used Festival Lead.
 182  - cdierkens's Dipplin used Do the Wave on Flyfrod’s Mega Excadrill ex for 180 damage. …
 183  - cdierkens chose Do the Wave
 184  Flyfrod's Mega Excadrill ex was Knocked Out!
 ```
 
-Emit both as damage and every world is invalid — the target takes 360. The IR
-needs restatement semantics: a sub-entry that repeats its parent is the
-confirmation of it, not a second hit.
+This was first read as a restatement and collapsed. It is not: Festival Lead
+lets Dipplin attack twice, and the 340 HP Excadrill is Knocked Out only by the
+second 180. Collapsing it made the knockout unprovable in every world. Every
+repeated attack line in the corpus sits under a Festival Lead entry, so both
+lines are hits (amended D21).
 
 **Breakdown arithmetic.** The same attack carries its components, which must sum
 to the printed total:
@@ -544,7 +547,7 @@ never recovered" without a report: it is the set of intervals that reach the end
 | D18 | Visible ambiguity is measured on render-distinct worlds, not world count. | Two Kangaskhan each holding one Psychic Energy are two worlds and one picture. |
 | D19 | A lowering pass maps every template key to a typed event; the solver never reads `templateKey`, `groups`, or prose. | Placeholder names differ per template and change with the client; the solver needs one vocabulary. |
 | D20 | The lowering table is total — an unknown key becomes an explicit `unhandled` and fails a completeness test. | The key set is outside the parser's promise; a dropped key is a silently missing constraint. |
-| D21 | A sub-entry attack that repeats a main-entry attack in the same phase is a restatement and is collapsed. Secondary damage has no attacker and is never collapsed. | The fixtures contain both: a repeated Do the Wave, and two identical `Weedle took 110 damage` lines that are two different cards. |
+| D21 | *Amended 2026-10-27.* A repeated attack line is a second hit and is never collapsed; secondary damage is never collapsed either. | The "restatement" was Festival Lead's second attack — collapsing it left 27 corpus logs with unprovable knockouts. Two identical `Weedle took 110 damage` lines are likewise two cards. |
 | D22 | A damage breakdown is carried as printed and never reconciled. | Two arithmetic rules failed against real data: equality flagged honest partials, and an upper bound flagged duplicated component lines and legitimate 0-damage hits. It is provenance, not a claim. |
 | D23 | The lowered log is interpreted as a program: events are partial, nondeterministic state transitions, and undefinedness is what prunes. | The game executed the program, so no true state can be undefined on it. This replaces "guess and check" with a semantics. |
 | D24 | Each prefix is reported as whole, divergent, or unexecutable; a divergent prefix is never collapsed. | Invalidation is the mechanism, divergence is the residue; only the second is a UI fact and only the third is a defect. |

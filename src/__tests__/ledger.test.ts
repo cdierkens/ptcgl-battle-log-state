@@ -728,6 +728,49 @@ describe("the rest of the transition table", () => {
     expect(run.diagnostics.map((diagnostic) => diagnostic.code)).toContain("AttachmentMismatch");
   });
 
+  describe("a discard line pooled across the Bench", () => {
+    const board = [
+      play("self", "Raging Bolt ex", "active", 1),
+      play("self", "Ogerpon ex", "bench", 2),
+      play("self", "Kangaskhan ex", "bench", 3),
+      attach("self", "Ogerpon ex", "Fighting", 4),
+      attach("self", "Kangaskhan ex", "Grass", 5),
+    ];
+    const codes = (events: readonly GameEvent[]) =>
+      runLedger([...board, ...events]).diagnostics.map((diagnostic) => diagnostic.code);
+
+    it("lets the named body give part of the list and other Benched bodies the rest", () => {
+      expect(codes([detach("self", "Ogerpon ex", ["Fighting", "Grass"], 6)])).toEqual([]);
+    });
+
+    it("still requires the named body to give at least one card", () => {
+      expect(codes([
+        attach("self", "Kangaskhan ex", "Grass", 6),
+        detach("self", "Ogerpon ex", ["Grass", "Grass"], 7),
+      ])).toContain("AttachmentMismatch");
+    });
+
+    it("rejects a card no other Benched body can supply", () => {
+      expect(codes([detach("self", "Ogerpon ex", ["Fighting", "Water"], 6)])).toContain("AttachmentMismatch");
+    });
+  });
+
+  it("finds a discarded card on the other side when the printed side cannot hold it", () => {
+    const run = runLedger([
+      play("self", "Munkidori", "bench", 1),
+      play("opponent", "Munkidori", "bench", 2),
+      attach("self", "Munkidori", "Darkness", 3),
+      detach("opponent", "Munkidori", ["Darkness"], 4),
+      detach("self", "Munkidori", ["Darkness"], 5),
+    ]);
+
+    const on = (line: number) =>
+      run.diagnostics.filter((diagnostic) => diagnostic.at.line === line).map((diagnostic) => diagnostic.code);
+    expect(on(4)).toEqual(["SideMismatch"]);
+    // The crossing took self's Darkness, so self's own line can no longer match.
+    expect(on(5)).toContain("AttachmentMismatch");
+  });
+
   it("counts a same-name switch with no pair as a warning", () => {
     const run = runLedger([
       play("self", "Kangaskhan", "bench", 1),
@@ -1342,6 +1385,24 @@ describe("a Stadium that raises the Bench limit", () => {
 
       expect(run.diagnostics).toEqual([]);
       expect(run.liveGroups.find((group) => group.name === "Drakloak")?.members).toBe(1);
+    });
+
+    it("reads one discard line as the joint pile of every trimmed body", () => {
+      const run = runLedger([
+        stadium("Area Zero Underdepths", 1),
+        play("self", "Pidgey", "active", 2),
+        ...bench(["A", "B", "C", "D", "E", "Hoothoot", "Hoothoot"], 3),
+        evolve("self", "Hoothoot", "Noctowl", 10, "bench"),
+        evolve("self", "Hoothoot", "Noctowl", 11, "bench"),
+        stadium("Spikemuth Gym", 12),
+        { at: at(13), kind: "hiddenPlay", side: "self" },
+        discard("self", "Noctowl", 14),
+        discard("self", "Noctowl", 14),
+        { at: at(15), body: card("self", "Noctowl"), cards: ["Hoothoot", "Hoothoot"], count: 2, kind: "detach" },
+      ], { oracle });
+
+      expect(run.diagnostics).toEqual([]);
+      expect(run.liveGroups.map((group) => group.name)).not.toContain("Noctowl");
     });
   });
 });

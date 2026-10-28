@@ -296,6 +296,25 @@ const containsAll = (have: readonly string[], wanted: readonly string[]): boolea
   return true;
 };
 
+/** Every distinct non-empty part of `cards` that `pile` also holds. */
+const sharedParts = (pile: readonly string[], cards: readonly string[]): readonly (readonly string[])[] => {
+  const held = new Map<string, number>();
+  for (const card of pile) {
+    held.set(card, (held.get(card) ?? 0) + 1);
+  }
+  const wanted = new Map<string, number>();
+  for (const card of cards) {
+    wanted.set(card, (wanted.get(card) ?? 0) + 1);
+  }
+  let parts: string[][] = [[]];
+  for (const [card, n] of wanted) {
+    const most = Math.min(n, held.get(card) ?? 0);
+    parts = parts.flatMap((part) =>
+      Array.from({ length: most + 1 }, (_, k) => [...part, ...Array<string>(k).fill(card)]));
+  }
+  return parts.filter((part) => part.length > 0);
+};
+
 /** Every distinct subset of `cards` of size `count`, by value rather than index. */
 const subsets = (cards: readonly string[], count: number): readonly (readonly string[])[] => {
   if (count === 0) {
@@ -2362,13 +2381,103 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     }
   };
 
+  /**
+   * What the rest of one side's Bench could add to a pooled discard line: per
+   * card, the most any variant of each other group holds on Benched bodies.
+   */
+  const benchSupply = (side: Side, except: MutableGroup): ReadonlyMap<string, number> => {
+    const supply = new Map<string, number>();
+    for (const group of state.groups.values()) {
+      if (group === except || group.side !== side) {
+        continue;
+      }
+      const most = new Map<string, number>();
+      for (const values of group.variants.values()) {
+        const here = new Map<string, number>();
+        for (const value of values) {
+          if (value.zone === "bench") {
+            for (const card of pileOf(value)) {
+              here.set(card, (here.get(card) ?? 0) + 1);
+            }
+          }
+        }
+        for (const [card, n] of here) {
+          most.set(card, Math.max(most.get(card) ?? 0, n));
+        }
+      }
+      for (const [card, n] of most) {
+        supply.set(card, (supply.get(card) ?? 0) + n);
+      }
+    }
+    return supply;
+  };
+
+  /**
+   * The client folds every attachment leaving one side's Bench in one action
+   * into a single line and names only the first body. So a Benched body named
+   * on a multi-card line gave a non-empty part of it; the rest came from other
+   * Benched bodies on that side.
+   */
+  const pooledParts = (
+    group: MutableGroup,
+    value: MaterialValue,
+    cards: readonly string[],
+  ): readonly (readonly string[])[] => {
+    if (cards.length < 2 || value.zone !== "bench") {
+      return [];
+    }
+    const supply = benchSupply(group.side, group);
+    return sharedParts(pileOf(value), cards).filter((part) => {
+      const rest = new Map<string, number>();
+      for (const card of cards) {
+        rest.set(card, (rest.get(card) ?? 0) + 1);
+      }
+      for (const card of part) {
+        rest.set(card, (rest.get(card) ?? 0) - 1);
+      }
+      return [...rest].every(([card, n]) => n <= (supply.get(card) ?? 0));
+    });
+  };
+
+  const canTake = (group: MutableGroup, cards: readonly string[]): boolean =>
+    hasMatch(group, (value) => containsAll(pileOf(value), cards) || pooledParts(group, value, cards).length > 0);
+
+  /**
+   * The line names the acting player, not the body's owner, so a Crushing
+   * Hammer prints its target under the wrong side. Cross over only when the
+   * printed side cannot hold the cards and the other side can.
+   */
+  const detachGroup = (body: CardRef, cards: readonly string[], at: EventLocation): MutableGroup | null => {
+    const direct = state.groups.get(keyOf(body.side, body.name));
+    const opposite = state.groups.get(keyOf(otherSide(body.side), body.name));
+    if (
+      direct !== undefined
+      && opposite !== undefined
+      && cards.length > 0
+      && !state.pending.has(direct.key)
+      && !state.pending.has(opposite.key)
+      && !canTake(direct, cards)
+      && canTake(opposite, cards)
+    ) {
+      diagnose(
+        "SideMismatch",
+        "warning",
+        `a discard names ${body.side}'s ${body.name}, but only ${otherSide(body.side)}'s can hold the cards`,
+        at,
+        opposite,
+      );
+      return opposite;
+    }
+    return resolveGroup(body, "a discard", at);
+  };
+
   const handleDetach = (
     body: CardRef,
     cards: readonly string[],
     count: number,
     at: EventLocation,
   ): void => {
-    const group = resolveGroup(body, "a discard", at);
+    const group = detachGroup(body, cards, at);
     if (group === null) {
       return;
     }
@@ -2377,12 +2486,17 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       if (cards.length > 0) {
         // Exact pile first: D14's strongest evidence. Only when no body's pile
         // matches exactly do we accept a superset, because the ledger may have
-        // missed an attachment rather than the log being wrong.
+        // missed an attachment rather than the log being wrong. A trim's line
+        // pools every trimmed body, so last it may hold their joint pile.
+        const joint = (option: KnockoutOption): readonly string[] => option.removed.flatMap(pileOf);
         const exact = pending.options.filter((option) =>
           option.removed.some((value) => sameMultiset(pileOf(value), cards)));
-        const filtered = exact.length > 0
-          ? exact
-          : pending.options.filter((option) => option.removed.some((value) => containsAll(pileOf(value), cards)));
+        const superset = pending.options.filter((option) =>
+          option.removed.some((value) => containsAll(pileOf(value), cards)));
+        const pooled = pending.trim
+          ? pending.options.filter((option) => joint(option).length > 0 && containsAll(cards, joint(option)))
+          : [];
+        const filtered = exact.length > 0 ? exact : superset.length > 0 ? superset : pooled;
         if (filtered.length > 0) {
           pending.options = filtered;
         } else {
@@ -2403,17 +2517,27 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       const matches = hasMatch(group, exactMatches)
         ? exactMatches
         : (value: MaterialValue): boolean => containsAll(pileOf(value), cards);
-      if (!hasMatch(group, matches)) {
-        diagnose(
-          "AttachmentMismatch",
-          "warning",
-          `the discard list for ${body.name} matches no body in the group`,
-          at,
-          group,
-        );
+      if (hasMatch(group, matches)) {
+        replaceOne(group, at, matches, (value) => removeFromPile(value, cards));
         return;
       }
-      replaceOne(group, at, matches, (value) => removeFromPile(value, cards));
+      if (hasMatch(group, (value) => pooledParts(group, value, cards).length > 0)) {
+        expand(group, at, (values) =>
+          values.flatMap((value, index) =>
+            pooledParts(group, value, cards).map((part) => [
+              ...values.slice(0, index),
+              removeFromPile(value, part),
+              ...values.slice(index + 1),
+            ])));
+        return;
+      }
+      diagnose(
+        "AttachmentMismatch",
+        "warning",
+        `the discard list for ${body.name} matches no body in the group`,
+        at,
+        group,
+      );
       return;
     }
     if (count > 0) {

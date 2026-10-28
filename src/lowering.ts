@@ -223,21 +223,17 @@ const heal =
     readonly targetPlayer: string;
     readonly target: string;
     readonly amount: string;
-    readonly inCounters?: boolean;
+    readonly ownerPrinted: boolean;
   }): Handler =>
-  (input) => {
-    const printed = count(input, spec.amount);
-    return [
-      {
-        at: at(input),
-        damage: spec.inCounters === true ? printed * 10 : printed,
-        kind: "heal",
-        // A counter-removal line prints the acting card's owner, not the target's.
-        ownerPrinted: spec.inCounters !== true,
-        target: card(input, spec.targetPlayer, spec.target),
-      },
-    ];
-  };
+  (input) => [
+    {
+      at: at(input),
+      damage: count(input, spec.amount),
+      kind: "heal",
+      ownerPrinted: spec.ownerPrinted,
+      target: card(input, spec.targetPlayer, spec.target),
+    },
+  ];
 
 /** Split a `• ` card list into names.
  *
@@ -487,10 +483,12 @@ export const MAPPED: Readonly<Record<string, Handler>> = {
   blog_loc_evolved_active: evolve("evolve", "active"),
   blog_loc_evolved_bench: evolve("evolve", "bench"),
   blog_loc_evolved_fallback: evolve("evolve", null),
-  blog_loc_healed: heal({ amount: "numDamage", target: "pokemonCardName", targetPlayer: "playerName" }),
+  blog_loc_healed: heal({ amount: "numDamage", ownerPrinted: true, target: "pokemonCardName", targetPlayer: "playerName" }),
+  // Despite the placeholder name, every locale prints damage here, not counters.
+  // A counter-removal line prints the acting card's owner, not the target's.
   blog_loc_healed_dc: heal({
     amount: "numDamageCounters",
-    inCounters: true,
+    ownerPrinted: false,
     target: "sourcePokemonCardName",
     targetPlayer: "sourcePlayerName",
   }),

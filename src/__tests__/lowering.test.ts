@@ -205,13 +205,15 @@ describe("lowering the fixtures", () => {
     const raw = [
       "Alice's Turn",
       "Alice's Pikachu healed 30 damage.",
-      "Alice's Pikachu was healed for 3 damage.",
+      "Alice's Pikachu was healed for 30 damage.",
       "Dusknoir moved 2 damage counters from Alice's Pikachu to Alice's Eevee.",
     ].join("\n");
     const lowered = unwrap(lower(unwrap(parseBattleLog(raw, { locale: "en", playerName: "Alice" })), raw));
 
     expect(lowered.events.map((event) => [event.kind, "ownerPrinted" in event && event.ownerPrinted]))
       .toEqual([["heal", true], ["heal", false], ["moveCounters", false]]);
+    // Its placeholder is named for counters, but the line prints damage.
+    expect(lowered.events[1]).toMatchObject({ damage: 30 });
   });
 });
 

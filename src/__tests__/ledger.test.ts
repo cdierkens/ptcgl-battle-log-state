@@ -4,7 +4,7 @@ import { parseBattleLog } from "@dierkens.dev/ptcgl-battle-log-parser";
 import { describe, expect, it } from "vitest";
 
 import type { CardRef, EventLocation, GameEvent } from "../events.js";
-import type { CounterSpread } from "../oracle.js";
+import type { CardOracle, CounterSpread } from "../oracle.js";
 import { census } from "../census.js";
 import { runLedger } from "../ledger.js";
 import { lower } from "../lowering.js";
@@ -1073,5 +1073,84 @@ describe("effects centred on the acting card", () => {
 
     expect(live({ leavesPlay: "deck", name: "Run Away Draw" })).toEqual(["Pidgey"]);
     expect(live({ name: "Run Away Draw" })).toContain("Dudunsparce");
+  });
+});
+
+describe("a Stadium that raises the Bench limit", () => {
+  const at = (line: number): EventLocation => loc(line);
+  const stadium = (name: string, line: number): GameEvent =>
+    ({ at: at(line), card: card("self", name), kind: "play", zone: "stadium" });
+  const discard = (side: Side, name: string, line: number): GameEvent =>
+    ({ at: at(line), card: card(side, name), kind: "moveCard", to: "discard" });
+  const oracle: CardOracle = {
+    printings: () => null,
+    stadium: (name: string) => (name === "Area Zero Underdepths" ? { benchLimit: 8 } : { benchLimit: null }),
+  };
+  const bench = (names: readonly string[], from: number) =>
+    names.map((name, offset) => play("self", name, "bench", from + offset));
+  const codes = (events: readonly GameEvent[], options: { readonly oracle: CardOracle } = { oracle }) =>
+    runLedger(events, options).diagnostics.map((diagnostic) => diagnostic.code);
+
+  it("keeps the raised limit until another Stadium replaces it", () => {
+    const six = (between: readonly GameEvent[]) => [
+      stadium("Area Zero Underdepths", 1),
+      play("self", "Pidgey", "active", 2),
+      ...bench(["A", "B", "C", "D", "E"], 3),
+      ...between,
+      play("self", "F", "bench", 20),
+    ];
+    // Ultra Ball discarding a second copy from the hand.
+    const fromHand = six([{ at: at(10), card: card("self", "Ultra Ball"), kind: "play", zone: null }, discard("self", "Area Zero Underdepths", 11)]);
+
+    expect(codes(fromHand)).toEqual([]);
+    expect(codes(six([stadium("Spikemuth Gym", 10)]))).toContain("BenchOverflow");
+    expect(codes(six([]), { oracle: { ...oracle, stadium: () => null } })).toContain("BenchOverflow");
+  });
+
+  describe("cut back after a hidden play", () => {
+    const trim = (cause: GameEvent) => runLedger([
+      stadium("Area Zero Underdepths", 1),
+      play("self", "Pidgey", "active", 2),
+      ...bench(["A", "B", "C", "D", "E", "Drakloak", "Meowth ex"], 3),
+      attach("self", "Drakloak", "Basic Psychic Energy", 10, "bench"),
+      stadium("Spikemuth Gym", 11),
+      cause,
+      discard("self", "Drakloak", 13),
+      discard("self", "Meowth ex", 13),
+      { at: at(14), body: card("self", "Drakloak"), cards: ["Basic Psychic Energy"], count: 1, kind: "detach" },
+    ], { oracle });
+
+    it("discards each named Bench Pokémon and lets its discard lines follow", () => {
+      const run = trim({ at: at(12), kind: "hiddenPlay", side: "self" });
+
+      expect(run.diagnostics).toEqual([]);
+      expect(run.liveGroups.map((group) => group.name)).not.toContain("Drakloak");
+      expect(run.liveGroups.map((group) => group.name)).not.toContain("Meowth ex");
+    });
+
+    it("leaves the Bench alone when a named card played the discards", () => {
+      const run = trim({ at: at(12), card: card("self", "Ultra Ball"), kind: "play", zone: null });
+
+      expect(run.liveGroups.map((group) => group.name)).toContain("Meowth ex");
+    });
+
+    it("trims two Pokémon of one name before either one's discard lines", () => {
+      const run = runLedger([
+        stadium("Area Zero Underdepths", 1),
+        play("self", "Pidgey", "active", 2),
+        ...bench(["A", "B", "C", "D", "Drakloak", "Drakloak", "Drakloak"], 3),
+        attach("self", "Drakloak", "Psychic", 10, "bench"),
+        attach("self", "Drakloak", "Fire", 11, "bench"),
+        stadium("Spikemuth Gym", 12),
+        { at: at(13), kind: "hiddenPlay", side: "self" },
+        discard("self", "Drakloak", 14),
+        discard("self", "Drakloak", 14),
+        { at: at(15), body: card("self", "Drakloak"), cards: ["Psychic"], count: 1, kind: "detach" },
+        { at: at(16), body: card("self", "Drakloak"), cards: ["Fire"], count: 1, kind: "detach" },
+      ], { oracle });
+
+      expect(run.diagnostics).toEqual([]);
+      expect(run.liveGroups.find((group) => group.name === "Drakloak")?.members).toBe(1);
+    });
   });
 });

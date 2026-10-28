@@ -61,6 +61,12 @@ export interface CardPrinting {
   readonly abilities: readonly CardAbility[] | null;
 }
 
+/** What a Stadium changes while it is in play. */
+export interface StadiumFacts {
+  /** The largest Bench the Stadium can allow, or `null` when it does not raise it. */
+  readonly benchLimit: number | null;
+}
+
 /** A card-data lookup, supplied by the caller. */
 export interface CardOracle {
   /**
@@ -68,4 +74,6 @@ export interface CardOracle {
    * the oracle has no record of it.
    */
   readonly printings: (name: string) => readonly CardPrinting[] | null;
+  /** Facts for a Stadium name, or `null` when it is not a Stadium or unknown. */
+  readonly stadium?: (name: string) => StadiumFacts | null;
 }

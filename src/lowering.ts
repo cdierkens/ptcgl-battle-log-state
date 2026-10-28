@@ -11,6 +11,7 @@
  * nothing else.
  */
 
+import { blogTemplateBundles } from "@dierkens.dev/ptcgl-battle-log-parser";
 import type { BattleLog, MainEntry, SubEntry, TemplateEvent } from "@dierkens.dev/ptcgl-battle-log-parser";
 
 import { UnresolvedPlayersError } from "./errors.js";
@@ -283,11 +284,23 @@ const evolve =
     ];
   };
 
+/** "a card" in every locale: the client's name for a card it does not reveal. */
+const HIDDEN_CARD = new Set(
+  Object.values(blogTemplateBundles).flatMap((bundle) => {
+    const template = bundle["blog_loc_a_card"]?.template;
+    return template === undefined ? [] : [template];
+  }),
+);
+
 const play =
   (zone: "active" | "bench" | "stadium" | null): Handler =>
-  (input) => [
-    { at: at(input), card: card(input, "playerName", "cardName"), kind: "play", zone },
-  ];
+  (input) => {
+    const ref = card(input, "playerName", "cardName");
+    if (zone === null && HIDDEN_CARD.has(ref.name)) {
+      return [{ at: at(input), kind: "hiddenPlay", side: ref.side }];
+    }
+    return [{ at: at(input), card: ref, kind: "play", zone }];
+  };
 
 /** A move whose line names only the actor: `[player] shuffled [card] into their deck`. */
 const moveOwnTo = (to: MoveTarget): Handler => moveCards(to, "playerName");

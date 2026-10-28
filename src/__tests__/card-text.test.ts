@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { counterSpreadFromText, leavesPlayFromText } from "../card-text.js";
+import { benchLimitFromText, counterSpreadFromText, leavesPlayFromText } from "../card-text.js";
 
 describe("reading a counter spread from card text", () => {
   it("reads an each-spread with its owner, ability rule, and exception", () => {
@@ -43,5 +43,13 @@ describe("reading whether an effect takes its Pokémon out of play", () => {
   it("does not read an effect on another Pokémon", () => {
     expect(leavesPlayFromText("Your opponent shuffles their Active Pokémon and all attached cards into their deck."))
       .toBeNull();
+  });
+});
+
+describe("reading a Stadium's Bench limit", () => {
+  it("reads the raised limit and drops its condition", () => {
+    expect(benchLimitFromText("Each player who has any Tera Pokémon in play can have up to 8 Pokémon on their Bench."))
+      .toBe(8);
+    expect(benchLimitFromText("Each Pokémon in play has no Weakness.")).toBeNull();
   });
 });

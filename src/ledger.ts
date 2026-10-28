@@ -161,12 +161,14 @@ interface MutableGroup {
 
 interface KnockoutOption {
   readonly remaining: readonly MaterialValue[];
-  readonly removed: MaterialValue;
+  /** One body for a knockout; a Bench trim can take several of the same name. */
+  readonly removed: readonly MaterialValue[];
 }
 
 interface PendingKnockout {
   readonly group: MutableGroup;
   readonly at: EventLocation;
+  readonly trim: boolean;
   options: readonly KnockoutOption[];
 }
 
@@ -1062,6 +1064,22 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     );
   };
 
+  let stadium: string | null = null;
+  let raisedBenchLeftAt: number | null = null;
+
+  const raisedBench = (name: string | null): number | null =>
+    name === null ? null : oracle?.stadium?.(name)?.benchLimit ?? null;
+
+  /** Both players share the Stadium; an unmet condition on it only loosens the check. */
+  const benchLimit = (): number => Math.max(5, raisedBench(stadium) ?? 5);
+
+  const setStadium = (name: string, at: EventLocation): void => {
+    if (raisedBench(stadium) !== null) {
+      raisedBenchLeftAt = at.phaseIndex;
+    }
+    stadium = name;
+  };
+
   const minBench = (side: Side): number => {
     let total = 0;
     for (const group of state.groups.values()) {
@@ -1389,6 +1407,63 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
   const departedBy = new Set<number>();
 
   /**
+   * A discard after "played a card." while a Stadium raises the Bench limit, or
+   * in the phase it left, is the Bench being cut back to size: the player picks
+   * Bench Pokémon to discard. Returns the discarded group, or `null` when the
+   * move is not such a discard.
+   */
+  const benchTrimOf = (event: MoveCardEvent, index: number): MutableGroup | null => {
+    if (event.to !== "discard") {
+      return null;
+    }
+    if (raisedBench(stadium) === null && raisedBenchLeftAt !== event.at.phaseIndex) {
+      return null;
+    }
+    let causeIndex = index - 1;
+    let cause = events[causeIndex];
+    while (cause?.kind === "moveCard" && cause.to === "discard" && cause.at.phaseIndex === event.at.phaseIndex) {
+      causeIndex -= 1;
+      cause = events[causeIndex];
+    }
+    if (cause?.kind !== "hiddenPlay" || cause.at.phaseIndex !== event.at.phaseIndex) {
+      return null;
+    }
+    const group = state.groups.get(keyOf(event.card.side, event.card.name));
+    return group !== undefined && hasMatch(group, (value) => value.zone === "bench") ? group : null;
+  };
+
+  /**
+   * Hold a trimmed Bench body open like a knockout, so its discard lines can say
+   * which one left. A second trim of the same name widens the same entry, since
+   * every name is printed before any discard line.
+   */
+  const trimBench = (group: MutableGroup, at: EventLocation): void => {
+    const earlier = state.pending.get(group.key);
+    if (earlier !== undefined && !earlier.trim) {
+      commitKnockout(earlier);
+      state.pending.delete(group.key);
+    }
+    const before = earlier?.trim === true
+      ? earlier.options
+      : [...group.variants.values()].map((remaining) => ({ remaining, removed: [] }));
+    const options = new Map<string, KnockoutOption>();
+    for (const option of before) {
+      option.remaining.forEach((value, position) => {
+        if (value.zone !== "bench") {
+          return;
+        }
+        const remaining = [...option.remaining.slice(0, position), ...option.remaining.slice(position + 1)];
+        const removed = [...option.removed, value];
+        options.set(`${multisetKey(remaining, valueKey)}\u0003${multisetKey(removed, valueKey)}`, { remaining, removed });
+      });
+    }
+    if (options.size === 0) {
+      return;
+    }
+    state.pending.set(group.key, { at: earlier?.trim === true ? earlier.at : at, group, options: [...options.values()], trim: true });
+  };
+
+  /**
    * A move of X to hand or deck right after X's own effect (a bare "played X",
    * or X's attack or Ability) is X leaving play, when the card text says that
    * effect returns X with its attached cards there. Remove one body; without
@@ -1708,15 +1783,15 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
           continue;
         }
         const remaining = [...values.slice(0, index), ...values.slice(index + 1)];
-        const option = { remaining, removed };
+        const option = { remaining, removed: [removed] };
         options.set(`${multisetKey(remaining, valueKey)}\u0003${valueKey(removed)}`, option);
       }
     }
 
-    state.pending.set(group.key, { at, group, options: [...options.values()] });
+    state.pending.set(group.key, { at, group, options: [...options.values()], trim: false });
 
     const lethalOptions = [...options.values()].filter((option) =>
-      option.removed.damage >= option.removed.hp.min);
+      option.removed.every((value) => value.damage >= value.hp.min));
     if (lethalOptions.length === 0 && !actedLast(events, index, target)) {
       diagnose(
         "KnockoutUnproven",
@@ -1739,7 +1814,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       next.set(multisetKey(sorted, valueKey), sorted);
     }
     group.variants = next;
-    group.members -= 1;
+    group.members -= options[0]?.removed.length ?? 1;
     if (group.id === state.active[group.side]) {
       const states = activeStates(group);
       if (states.length === 0 || !states.every(Boolean)) {
@@ -1846,7 +1921,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     const hand = state.hand[card.side];
     hand.count = Math.max(0, hand.count - 1);
     if (zone === "active" || zone === "bench") {
-      if (zone === "bench" && minBench(card.side) >= 5) {
+      if (zone === "bench" && minBench(card.side) >= benchLimit()) {
         // The game does not allow a sixth Bench Pokémon, so either the log is
         // wrong or the ledger over-counted a earlier departure. A move to a
         // hidden zone has no source, so the ledger deliberately keeps bodies
@@ -1855,7 +1930,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
         diagnose(
           "BenchOverflow",
           "warning",
-          `a sixth Pokémon was played to ${card.name}'s Bench`,
+          `a Pokémon was played to ${card.name}'s full Bench`,
           at,
           null,
         );
@@ -1864,6 +1939,10 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       if (zone === "active") {
         state.active[card.side] = group.id;
       }
+      return;
+    }
+    if (zone === "stadium") {
+      setStadium(card.name, at);
       return;
     }
     if (zone !== null) {
@@ -1920,8 +1999,8 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
           return;
         }
       }
-      if (to === "bench" && minBench(card.side) >= 5) {
-        diagnose("BenchOverflow", "warning", `a sixth Pokémon moved to ${card.name}'s Bench`, at, group);
+      if (to === "bench" && minBench(card.side) >= benchLimit()) {
+        diagnose("BenchOverflow", "warning", `a Pokémon moved to ${card.name}'s full Bench`, at, group);
       }
       moveZone(card.side, card.name, from, to, at);
       if (to === "active") {
@@ -1935,8 +2014,11 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       state.hand[card.side].count += 1;
     }
     if (to === "stadium") {
+      setStadium(card.name, at);
       return;
     }
+    // A discard naming the Stadium may be another copy from the hand (Ultra
+    // Ball), so only a new Stadium proves the old one left.
     // A move to a hidden zone does not name its source. `Night Stretcher: moved
     // Mega Excadrill ex to hand` is the discard, not the board, and treating it
     // as a departure deletes the active Pokémon on no evidence. The card may
@@ -2028,10 +2110,10 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
         // matches exactly do we accept a superset, because the ledger may have
         // missed an attachment rather than the log being wrong.
         const exact = pending.options.filter((option) =>
-          sameMultiset(pileOf(option.removed), cards));
+          option.removed.some((value) => sameMultiset(pileOf(value), cards)));
         const filtered = exact.length > 0
           ? exact
-          : pending.options.filter((option) => containsAll(pileOf(option.removed), cards));
+          : pending.options.filter((option) => option.removed.some((value) => containsAll(pileOf(value), cards)));
         if (filtered.length > 0) {
           pending.options = filtered;
         } else {
@@ -2178,6 +2260,15 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       const opposite = state.pending.get(keyOf(otherSide(event.body.side), event.body.name));
       if (direct !== undefined || opposite !== undefined) {
         handleDetach(event.body, event.cards, event.count, at);
+        observePrefix(false);
+        return;
+      }
+    }
+    if (event.kind === "moveCard") {
+      // Every discard in a Bench trim stays open until its detach lines arrive.
+      const trimmed = benchTrimOf(event, index);
+      if (trimmed !== null) {
+        trimBench(trimmed, at);
         observePrefix(false);
         return;
       }

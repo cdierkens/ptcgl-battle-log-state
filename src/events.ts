@@ -174,6 +174,15 @@ export interface PlayEvent extends EventBase {
   readonly zone: CardZone | null;
 }
 
+/**
+ * "X played a card." with the card hidden. The client prints it for effects it
+ * does not name, such as a Stadium's Bench limit being enforced.
+ */
+export interface HiddenPlayEvent extends EventBase {
+  readonly kind: "hiddenPlay";
+  readonly side: Side;
+}
+
 /** A card moved to another zone by an effect. */
 export interface MoveCardEvent extends EventBase {
   readonly kind: "moveCard";
@@ -252,6 +261,7 @@ export type GameEvent =
   | EndTurnEvent
   | EvolveEvent
   | HealEvent
+  | HiddenPlayEvent
   | KnockoutEvent
   | MoveCardEvent
   | MoveCountersEvent

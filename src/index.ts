@@ -29,6 +29,7 @@ export type {
   EvolveEvent,
   GameEvent,
   HealEvent,
+  HiddenPlayEvent,
   IgnoreReason,
   IgnoredEntry,
   KnockoutEvent,
@@ -46,8 +47,8 @@ export type {
 } from "./events.js";
 export { lower, type LowerOptions } from "./lowering.js";
 export { census, type CensusResult } from "./census.js";
-export type { CardAbility, CardAttack, CardOracle, CardPrinting, CounterSpread } from "./oracle.js";
-export { counterSpreadFromText, leavesPlayFromText } from "./card-text.js";
+export type { CardAbility, CardAttack, CardOracle, CardPrinting, CounterSpread, StadiumFacts } from "./oracle.js";
+export { benchLimitFromText, counterSpreadFromText, leavesPlayFromText } from "./card-text.js";
 export {
   runLedger,
   type HpInterval,

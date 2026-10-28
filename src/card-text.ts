@@ -65,3 +65,14 @@ export const leavesPlayFromText = (effect: string): "hand" | "deck" | null => {
   const match = LEAVES.exec(effect.replace(/[’‘]/g, "'"));
   return match?.[1] === undefined ? null : match[1].toLowerCase() === "hand" ? "hand" : "deck";
 };
+
+const BENCH_LIMIT = /\bcan have up to (\d+) Pokémon on (?:their|your) Bench\b/i;
+
+/**
+ * The Bench size English Stadium text allows, if it raises one. Conditions such
+ * as Area Zero Underdepths' Tera requirement are dropped, so it is a ceiling.
+ */
+export const benchLimitFromText = (effect: string): number | null => {
+  const match = BENCH_LIMIT.exec(effect);
+  return match?.[1] === undefined ? null : Number(match[1]);
+};

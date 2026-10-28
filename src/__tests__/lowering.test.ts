@@ -235,6 +235,15 @@ describe("lowering a line whose key the parser could not determine", () => {
     expect(lowered.diagnostics).toEqual([]);
   });
 
+  it("lowers a hidden card play, in any locale, to its side alone", () => {
+    const en = lowerLocale("en", ["Alice's Turn", "Alice played a card."]);
+    const fr = lowerLocale("fr", ["Tour de Alice", "Alice a joué une carte."]);
+
+    for (const lowered of [en, fr]) {
+      expect(lowered.events).toMatchObject([{ kind: "hiddenPlay", side: "self" }]);
+    }
+  });
+
   it("reports it, rather than picking, when the candidates lower differently", () => {
     const fr = lowerLocale("fr", ["Tour de Alice", "Pikachu de Alice a été soigné de 30 dégâts."]);
     const ptbr = lowerLocale("ptbr", ["Turno de Alice", "Alice embaralhou Nest Ball no baralho dele."]);

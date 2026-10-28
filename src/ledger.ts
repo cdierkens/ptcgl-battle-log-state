@@ -325,7 +325,12 @@ const subsets = (cards: readonly string[], count: number): readonly (readonly st
   return [...out.values()];
 };
 
-const knockoutFollows = (
+/**
+ * Whether surviving the hit at `index` proves nothing about printed HP: a
+ * knockout of that name follows, or the hit card's own effect heals it in the
+ * same phase (Resolute Heart prints the damage it undoes as a heal).
+ */
+const survivalUnproven = (
   events: readonly GameEvent[],
   index: number,
   side: Side,
@@ -349,6 +354,13 @@ const knockoutFollows = (
       return false;
     }
     if (event.kind === "knockout" && event.target.side === side && event.target.name === name) {
+      return true;
+    }
+    const previous = events[index + offset - 1];
+    if (
+      event.kind === "heal" && event.target.name === name && event.at.phaseIndex === source.at.phaseIndex
+      && previous?.kind === "attack" && previous.source.name === name
+    ) {
       return true;
     }
   }
@@ -1325,7 +1337,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       if (group === undefined) {
         continue;
       }
-      const lethal = knockoutFollows(events, index, side, ref.name);
+      const lethal = survivalUnproven(events, index, side, ref.name);
       const roles = placements.map(({ source, target }) =>
         source === side && target === side ? "within" : source === side ? "lose" : target === side ? "gain" : "untouched");
       expand(group, at, (values) => roles.flatMap((role) => {
@@ -1380,7 +1392,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     if (groups.length === 0 || total < batch.length) {
       // More lines than bodies: the one-per-body reading fails; fall back.
       for (const line of batch) {
-        placeCounters(line.target, line.damage, (side) => knockoutFollows(events, index, side, line.target.name), line.at);
+        placeCounters(line.target, line.damage, (side) => survivalUnproven(events, index, side, line.target.name), line.at);
       }
       return;
     }
@@ -1397,7 +1409,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       const others = total - capacity(group);
       const least = Math.max(0, batch.length - others);
       const most = Math.min(batch.length, capacity(group));
-      const lethal = knockoutFollows(events, index + batch.length - 1, group.side, target.name);
+      const lethal = survivalUnproven(events, index + batch.length - 1, group.side, target.name);
       expand(group, at, (values) => {
         const nexts: (readonly MaterialValue[])[] = [];
         const pick = (start: number, left: number, current: readonly MaterialValue[]): void => {
@@ -1659,7 +1671,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     for (const [name, lines] of byName) {
       const groups = groupsOf(name);
       for (const group of groups) {
-        const lethal = knockoutFollows(events, last, group.side, name);
+        const lethal = survivalUnproven(events, last, group.side, name);
         if (spread.placement === "each") {
           const otherGroups = groups.filter((other) => other !== group);
           const others = sums(otherGroups);
@@ -1748,7 +1760,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       return;
     }
     removeCounters(from, amount, at, `moving ${String(amount)} damage from ${from.name}`);
-    placeCounters(to, amount, (side) => knockoutFollows(events, index, side, to.name), at);
+    placeCounters(to, amount, (side) => survivalUnproven(events, index, side, to.name), at);
   };
 
   const damageResolved = (
@@ -2287,7 +2299,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       }
       const toGroup = state.groups.get(keyOf(to.side, to.name));
       if (toGroup !== undefined) {
-        const lethal = knockoutFollows(events, index, to.side, to.name);
+        const lethal = survivalUnproven(events, index, to.side, to.name);
         applyToAny(toGroup, at, (value) => damageValue(value, amount, lethal));
       }
       return;
@@ -2307,7 +2319,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       );
       return;
     }
-    const lethal = knockoutFollows(events, index, to.side, to.name);
+    const lethal = survivalUnproven(events, index, to.side, to.name);
     expand(group, at, (values) => {
       const nexts: (readonly MaterialValue[])[] = [];
       values.forEach((source, sourceIndex) => {
@@ -2391,14 +2403,14 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
           damageGroup(
             event.target,
             event.damage,
-            knockoutFollows(events, index, event.target.side, event.target.name),
+            survivalUnproven(events, index, event.target.side, event.target.name),
             at,
           );
         } else {
           placeCounters(
             event.target,
             event.damage,
-            (side) => knockoutFollows(events, index, side, event.target.name),
+            (side) => survivalUnproven(events, index, side, event.target.name),
             at,
           );
         }
@@ -2408,7 +2420,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
         damageGroup(
           event.target,
           event.amount,
-          knockoutFollows(events, index, event.target.side, event.target.name),
+          survivalUnproven(events, index, event.target.side, event.target.name),
           at,
           targetZone(event.source, event.attack),
         );

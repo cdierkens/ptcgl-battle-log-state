@@ -447,6 +447,20 @@ describe("the rest of the transition table", () => {
     expect(run.unexecutable).toBe(false);
   });
 
+  it("learns nothing about HP from a hit the card's own effect heals back", () => {
+    const hp = (between: readonly GameEvent[]) => runLedger([
+      play("self", "Pikachu ex", "active", 1),
+      damage("self", "Pikachu ex", 310, 2),
+      ...between,
+      heal("self", "Pikachu ex", 120, 4),
+    ]).liveGroups[0]?.hp;
+
+    // Resolute Heart: "is not Knocked Out, and its remaining HP becomes 10".
+    expect(hp([{ at: loc(3), attack: "Resolute Heart", kind: "attack", source: card("self", "Pikachu ex") }]))
+      .toEqual([{ max: null, min: 0 }]);
+    expect(hp([])).toEqual([{ max: null, min: 311 }]);
+  });
+
   it("forks placed counters across both sides when both have the card", () => {
     const run = runLedger([
       play("self", "Slowpoke", "bench", 1),

@@ -43,6 +43,7 @@ export type {
   PrizeRevealedEvent,
   PrizeTakenEvent,
   RetreatEvent,
+  SuddenDeathEvent,
   SwitchActiveEvent,
   UnhandledEntry,
 } from "./events.js";

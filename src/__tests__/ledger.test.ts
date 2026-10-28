@@ -764,6 +764,23 @@ describe("the rest of the transition table", () => {
     expect(run.board.prizes.self.remaining).toBe(0);
   });
 
+  it("starts Sudden Death with an empty board and one Prize card each", () => {
+    const run = runLedger([
+      play("self", "Pidgey", "active", 1),
+      ...["A", "B", "C", "D", "E"].map((name, index) => play("self", name, "bench", 2 + index)),
+      { at: loc(7), count: 4, kind: "prizeTaken", side: "self" },
+      { at: loc(7), count: 1, kind: "draw", opening: false, revealed: ["Rare Candy"], side: "self" },
+      { at: loc(8), kind: "suddenDeath" },
+      play("self", "Pidgey", "active", 9),
+      ...["A", "B", "C", "D", "E"].map((name, index) => play("self", name, "bench", 10 + index)),
+      { at: loc(15), count: 1, kind: "prizeTaken", side: "self" },
+    ]);
+
+    expect(run.diagnostics).toEqual([]);
+    expect(run.board.prizes.self.remaining).toBe(0);
+    expect(run.board.hand.self.known).toEqual([]);
+  });
+
   it("keeps adding members to a saturated group", () => {
     const run = runLedger(
       [
@@ -1082,6 +1099,21 @@ describe("the card oracle", () => {
     expect(run.prefixes.stableConfirmed).toBe(2);
     expect(run.prefixes.stableDivergent).toBe(0);
   });
+
+  it("does not count a group that left in Sudden Death as divergent", () => {
+    const run = runLedger([
+      play("self", "Slowpoke", "bench", 1),
+      play("opponent", "Slowpoke", "bench", 2),
+      placed("opponent", "Slowpoke", 2, 3),
+      { at: loc(4), kind: "endTurn", side: "self" },
+      { at: loc(5), kind: "suddenDeath" },
+      play("self", "Pidgey", "active", 6),
+      { at: loc(7), kind: "endTurn", side: "self" },
+    ]);
+
+    expect(run.prefixes.stableDivergent).toBe(1);
+    expect(run.prefixes.stableConfirmed).toBe(1);
+  });
 });
 
 describe("effects centred on the acting card", () => {
@@ -1255,6 +1287,15 @@ describe("a Stadium that raises the Bench limit", () => {
     expect(codes(fromHand)).toEqual([]);
     expect(codes(six([stadium("Spikemuth Gym", 10)]))).toContain("BenchOverflow");
     expect(codes(six([]), { oracle: { ...oracle, stadium: () => null } })).toContain("BenchOverflow");
+  });
+
+  it("leaves play with Sudden Death", () => {
+    expect(codes([
+      stadium("Area Zero Underdepths", 1),
+      { at: at(2), kind: "suddenDeath" },
+      play("self", "Pidgey", "active", 3),
+      ...bench(["A", "B", "C", "D", "E", "F"], 4),
+    ])).toEqual(["BenchOverflow"]);
   });
 
   describe("cut back after a hidden play", () => {

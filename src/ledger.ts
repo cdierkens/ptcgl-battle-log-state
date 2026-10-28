@@ -838,8 +838,12 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
   };
 
   const retire = (group: MutableGroup, at: EventLocation): void => {
-    // `observe` handles the divergence counter when the final variant change
-    // happens. Saturation has no such observer, so clear it here.
+    // A group can leave with bodies still in it (Sudden Death), so its
+    // divergence and saturation counters are cleared here.
+    if (group.divergent) {
+      state.divergentGroups = Math.max(0, state.divergentGroups - 1);
+      group.divergent = false;
+    }
     if (group.saturated) {
       state.saturatedGroupsLive = Math.max(0, state.saturatedGroupsLive - 1);
       group.saturated = false;
@@ -1160,6 +1164,18 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       raisedBenchLeftAt = at.phaseIndex;
     }
     stadium = name;
+  };
+
+  /** Sudden Death starts a new game: an empty board and hand, and one Prize card each. */
+  const suddenDeath = (at: EventLocation): void => {
+    for (const group of [...state.groups.values()]) {
+      retire(group, at);
+    }
+    for (const side of ["self", "opponent"] as const) {
+      state.hand[side] = { count: 0, known: [] };
+      state.prizes[side] = { known: [], remaining: 1 };
+    }
+    stadium = null;
   };
 
   const minBench = (side: Side): number => {
@@ -2532,6 +2548,9 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       case "endTurn":
       case "attack":
       case "choice":
+        break;
+      case "suddenDeath":
+        suddenDeath(at);
         break;
       case "heal":
         if (event.ownerPrinted) {

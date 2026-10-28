@@ -246,6 +246,11 @@ export interface EndGameEvent extends EventBase {
   readonly reason: string;
 }
 
+/** "Entering Sudden Death.": a new game starts in the same log, with one Prize card each. */
+export interface SuddenDeathEvent extends EventBase {
+  readonly kind: "suddenDeath";
+}
+
 /** Every event the lowering pass can produce. */
 /**
  * "Damage to X was prevented": an effect reached the card and nothing landed.
@@ -278,6 +283,7 @@ export type GameEvent =
   | PrizeRevealedEvent
   | PrizeTakenEvent
   | RetreatEvent
+  | SuddenDeathEvent
   | SwitchActiveEvent;
 
 /** A line that was matched but deliberately carries no board state. */

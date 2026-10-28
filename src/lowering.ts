@@ -587,6 +587,7 @@ export const MAPPED: Readonly<Record<string, Handler>> = {
     modifiers: [WEAKNESS, RESISTANCE],
     target: "targetPokemonCardName",
   }),
+  blog_loc_sudden_death: (input) => [{ at: at(input), kind: "suddenDeath" }],
   // The template reads `[targetCardName] was switched with [sourceCardName] to
   // become the Active Pokémon`, and the line after it names the first card as
   // the new Active. So `target` is the incoming body and `source` the outgoing
@@ -689,7 +690,7 @@ export const IGNORED: Readonly<Record<IgnoreReason, readonly string[]>> = {
     "blog_loc_rps_choice", "blog_loc_rps_won", "blog_loc_scissors",
     "blog_loc_selected_coinface", "blog_loc_shuffled_deck",
     "blog_loc_shuffled_fallback", "blog_loc_shuffled_hand", "blog_loc_shuffled_prizes",
-    "blog_loc_sudden_death", "blog_loc_tails", "blog_loc_tera_effect",
+    "blog_loc_tails", "blog_loc_tera_effect",
     "blog_loc_timeout", "blog_loc_took_mulligan_multi", "blog_loc_took_mulligan_single",
     "blog_loc_took_mulligans", "blog_loc_vstar_abilities", "blog_loc_won_coin_toss",
   ],

@@ -41,8 +41,8 @@ describe("the lowering table", () => {
   });
 
   it("keeps the tables honest about their size", () => {
-    expect(Object.keys(MAPPED)).toHaveLength(70);
-    expect(Object.values(IGNORED).flat()).toHaveLength(158);
+    expect(Object.keys(MAPPED)).toHaveLength(71);
+    expect(Object.values(IGNORED).flat()).toHaveLength(157);
   });
 });
 
@@ -214,6 +214,13 @@ describe("lowering the fixtures", () => {
       .toEqual([["heal", true], ["heal", false], ["moveCounters", false]]);
     // Its placeholder is named for counters, but the line prints damage.
     expect(lowered.events[1]).toMatchObject({ damage: 30 });
+  });
+
+  it("lowers Sudden Death to a new game", () => {
+    const raw = ["Alice's Turn", "Alice ended their turn.", "", "Entering Sudden Death."].join("\n");
+    const lowered = unwrap(lower(unwrap(parseBattleLog(raw, { locale: "en", playerName: "Alice" })), raw));
+
+    expect(lowered.events.at(-1)).toMatchObject({ kind: "suddenDeath" });
   });
 });
 

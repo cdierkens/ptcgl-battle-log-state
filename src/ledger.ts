@@ -1073,6 +1073,21 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
   /** Both players share the Stadium; an unmet condition on it only loosens the check. */
   const benchLimit = (): number => Math.max(5, raisedBench(stadium) ?? 5);
 
+  /**
+   * HP the Stadium may take from a body of this name. An unknown stage counts
+   * as reduced, and a Stadium that has left play may linger: both only loosen.
+   */
+  const hpReduction = (name: string): number => {
+    const reduction = stadium === null ? null : oracle?.stadium?.(stadium)?.hpReduction ?? null;
+    if (reduction === null) {
+      return 0;
+    }
+    const printings = oracle?.printings(name) ?? null;
+    return printings === null || printings.some((printing) => printing.stage === null || printing.stage === reduction.stage)
+      ? reduction.amount
+      : 0;
+  };
+
   const setStadium = (name: string, at: EventLocation): void => {
     if (raisedBench(stadium) !== null) {
       raisedBenchLeftAt = at.phaseIndex;
@@ -1799,20 +1814,20 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       return;
     }
 
-    const lethal = (value: MaterialValue): boolean => value.damage >= value.hp.min;
+    // The Stadium's reduction may not apply (unknown stage, a Stadium that has
+    // left play), so it only widens the candidates and never narrows them.
+    const reduction = hpReduction(target.name);
+    const lethal = (value: MaterialValue): boolean => value.damage >= value.hp.min - reduction;
+    const lethalAtPrintedHp = (value: MaterialValue): boolean => value.damage >= value.hp.min;
 
     // Any body that damage could have knocked out is a candidate, in any zone;
     // later lines such as the discard list prune the rest. With none, every
     // body stays a candidate and the knockout is reported unproven below.
     const options = new Map<string, KnockoutOption>();
     for (const values of group.variants.values()) {
-      let indices = values
-        .map((value, index) => ({ index, value }))
-        .filter((entry) => lethal(entry.value))
-        .map((entry) => entry.index);
-      if (indices.length === 0) {
-        indices = values.map((_value, index) => index);
-      }
+      const indices = values.some(lethalAtPrintedHp)
+        ? values.flatMap((value, index) => (lethal(value) ? [index] : []))
+        : values.map((_value, index) => index);
       for (const index of indices) {
         const removed = values[index];
         if (removed === undefined) {
@@ -1827,7 +1842,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     state.pending.set(group.key, { at, group, options: [...options.values()], trim: false });
 
     const lethalOptions = [...options.values()].filter((option) =>
-      option.removed.every((value) => value.damage >= value.hp.min));
+      option.removed.every(lethal));
     if (lethalOptions.length === 0 && !actedLast(events, index, target) && !effectKnocksOut(index, target)) {
       diagnose(
         "KnockoutUnproven",

@@ -4,7 +4,7 @@ import { parseBattleLog } from "@dierkens.dev/ptcgl-battle-log-parser";
 import { describe, expect, it } from "vitest";
 
 import type { CardRef, EventLocation, GameEvent } from "../events.js";
-import type { CardOracle, CounterSpread, KnockoutReach } from "../oracle.js";
+import type { CardOracle, CounterSpread, KnockoutReach, Stage } from "../oracle.js";
 import { census } from "../census.js";
 import { runLedger } from "../ledger.js";
 import { lower } from "../lowering.js";
@@ -774,6 +774,7 @@ describe("the card oracle", () => {
             evolvesFrom: null,
             hp,
             prizeValue: null,
+            stage: null,
           }]
         : null,
   });
@@ -890,6 +891,7 @@ describe("the card oracle", () => {
         evolvesFrom: null,
         hp: name === "Absol" ? 200 : 160,
         prizeValue: null,
+        stage: null,
       }],
     });
     const codes = (used: string, chose: string | null, reach: KnockoutReach) => runLedger([
@@ -999,6 +1001,7 @@ describe("effects centred on the acting card", () => {
             evolvesFrom: null,
             hp: null,
             prizeValue: null,
+            stage: null,
           }];
     },
   });
@@ -1113,7 +1116,7 @@ describe("a Stadium that raises the Bench limit", () => {
     ({ at: at(line), card: card(side, name), kind: "moveCard", to: "discard" });
   const oracle: CardOracle = {
     printings: () => null,
-    stadium: (name: string) => (name === "Area Zero Underdepths" ? { benchLimit: 8 } : { benchLimit: null }),
+    stadium: (name: string) => (name === "Area Zero Underdepths" ? { benchLimit: 8, hpReduction: null } : { benchLimit: null, hpReduction: null }),
   };
   const bench = (names: readonly string[], from: number) =>
     names.map((name, offset) => play("self", name, "bench", from + offset));
@@ -1181,5 +1184,45 @@ describe("a Stadium that raises the Bench limit", () => {
       expect(run.diagnostics).toEqual([]);
       expect(run.liveGroups.find((group) => group.name === "Drakloak")?.members).toBe(1);
     });
+  });
+});
+
+describe("a Stadium that reduces HP", () => {
+  const stadium = (name: string, line: number): GameEvent =>
+    ({ at: loc(line), card: card("self", name), kind: "play", zone: "stadium" });
+  const oracle = (stage: Stage | null): CardOracle => ({
+    printings: (name: string) => (name === "Dragapult ex"
+      ? [{ abilities: [], attacks: [], evolvesFrom: "Drakloak", hp: 320, prizeValue: null, stage }]
+      : null),
+    stadium: (name: string) => ({
+      benchLimit: null,
+      hpReduction: name === "Gravity Mountain" ? { amount: 30, stage: "Stage2" } : null,
+    }),
+  });
+  const unproven = (stadiumName: string, stage: Stage | null) => runLedger([
+    stadium(stadiumName, 1),
+    play("opponent", "Dragapult ex", "active", 2),
+    damage("opponent", "Dragapult ex", 310, 3),
+    knockout("opponent", "Dragapult ex", 4),
+  ], { oracle: oracle(stage) }).diagnostics.some((diagnostic) => diagnostic.code === "KnockoutUnproven");
+
+  it("explains a knockout below printed HP only for the stage it names", () => {
+    expect(unproven("Gravity Mountain", "Stage2")).toBe(false);
+    expect(unproven("Gravity Mountain", null)).toBe(false);
+    expect(unproven("Gravity Mountain", "Stage1")).toBe(true);
+    expect(unproven("Spikemuth Gym", "Stage2")).toBe(true);
+  });
+
+  it("keeps every body a candidate when only the reduction makes one lethal", () => {
+    const run = runLedger([
+      stadium("Gravity Mountain", 1),
+      play("opponent", "Dragapult ex", "active", 2),
+      play("opponent", "Dragapult ex", "bench", 3),
+      damage("opponent", "Dragapult ex", 310, 4),
+      knockout("opponent", "Dragapult ex", 5),
+      play("self", "Pidgey", "active", 6),
+    ], { oracle: oracle(null) });
+
+    expect(run.liveGroups.find((group) => group.name === "Dragapult ex")?.varying).toContain("damage");
   });
 });

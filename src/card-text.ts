@@ -1,4 +1,4 @@
-import type { CounterSpread, KnockoutReach } from "./oracle.js";
+import type { CounterSpread, HpReduction, KnockoutReach } from "./oracle.js";
 
 const WHO = String.raw`(of your opponent's |of your )?(Benched )?Pokémon`;
 const EACH = new RegExp(
@@ -75,6 +75,18 @@ const BENCH_LIMIT = /\bcan have up to (\d+) Pokémon on (?:their|your) Bench\b/i
 export const benchLimitFromText = (effect: string): number | null => {
   const match = BENCH_LIMIT.exec(effect);
   return match?.[1] === undefined ? null : Number(match[1]);
+};
+
+const HP_REDUCTION = /\bEach (Basic|Stage 1|Stage 2) Pokémon in play \(both yours and your opponent's\) gets -(\d+) HP\./i;
+
+/** The HP English Stadium text takes from every Pokémon of one stage, if any. */
+export const hpReductionFromText = (effect: string): HpReduction | null => {
+  const match = HP_REDUCTION.exec(effect.replace(/[’‘]/g, "'"));
+  if (match?.[1] === undefined || match[2] === undefined) {
+    return null;
+  }
+  const stage = match[1].replace(/\s/g, "");
+  return { amount: Number(match[2]), stage: stage === "Stage1" || stage === "Stage2" ? stage : "Basic" };
 };
 
 const KNOCKED_OUT = /\b(?:is|are) Knocked Out\.$/i;

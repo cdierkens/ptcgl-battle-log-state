@@ -57,9 +57,14 @@ export interface CardAbility {
   readonly knocksOut: KnockoutReach;
 }
 
+/** An evolution stage as printed. */
+export type Stage = "Basic" | "Stage1" | "Stage2";
+
 /** One printing of a card. */
 export interface CardPrinting {
   readonly hp: number | null;
+  /** `null` when the card data does not say. */
+  readonly stage: Stage | null;
   /** Prizes the opponent takes when this body is knocked out. */
   readonly prizeValue: 1 | 2 | 3 | null;
   /** The name this card evolves from, or `null` for a Basic. */
@@ -73,6 +78,13 @@ export interface CardPrinting {
 export interface StadiumFacts {
   /** The largest Bench the Stadium can allow, or `null` when it does not raise it. */
   readonly benchLimit: number | null;
+  /** HP every Pokémon of one stage in play loses (Gravity Mountain), or `null`. */
+  readonly hpReduction: HpReduction | null;
+}
+
+export interface HpReduction {
+  readonly stage: Stage;
+  readonly amount: number;
 }
 
 /** A card-data lookup, supplied by the caller. */

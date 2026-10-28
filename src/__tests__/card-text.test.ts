@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { benchLimitFromText, counterSpreadFromText, knocksOutFromText, leavesPlayFromText } from "../card-text.js";
+import { benchLimitFromText, counterSpreadFromText, hpReductionFromText, knocksOutFromText, leavesPlayFromText } from "../card-text.js";
 
 describe("reading a counter spread from card text", () => {
   it("reads an each-spread with its owner, ability rule, and exception", () => {
@@ -51,6 +51,17 @@ describe("reading a Stadium's Bench limit", () => {
     expect(benchLimitFromText("Each player who has any Tera Pokémon in play can have up to 8 Pokémon on their Bench."))
       .toBe(8);
     expect(benchLimitFromText("Each Pokémon in play has no Weakness.")).toBeNull();
+  });
+});
+
+describe("reading a Stadium's HP reduction", () => {
+  it("reads the stage and the amount", () => {
+    expect(hpReductionFromText("Each Stage 2 Pokémon in play (both yours and your opponent’s) gets -30 HP."))
+      .toEqual({ amount: 30, stage: "Stage2" });
+    expect(hpReductionFromText("Each Basic Pokémon in play (both yours and your opponent's) gets -10 HP."))
+      .toEqual({ amount: 10, stage: "Basic" });
+    expect(hpReductionFromText("Each player who has any Tera Pokémon in play can have up to 8 Pokémon on their Bench."))
+      .toBeNull();
   });
 });
 

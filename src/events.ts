@@ -231,6 +231,15 @@ export interface EndGameEvent extends EventBase {
 }
 
 /** Every event the lowering pass can produce. */
+/**
+ * "Damage to X was prevented": an effect reached the card and nothing landed.
+ * The line names the card, never its owner.
+ */
+export interface PreventedEvent extends EventBase {
+  readonly kind: "prevented";
+  readonly name: string;
+}
+
 export type GameEvent =
   | AttackEvent
   | AttachEvent
@@ -247,6 +256,7 @@ export type GameEvent =
   | MoveCardEvent
   | MoveCountersEvent
   | PlayEvent
+  | PreventedEvent
   | PrizeRevealedEvent
   | PrizeTakenEvent
   | RetreatEvent

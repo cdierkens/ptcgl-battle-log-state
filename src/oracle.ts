@@ -12,11 +12,41 @@
  * every printing of that name, so a name with several HP values stays a set.
  */
 
+/**
+ * Damage counters one effect puts on several Pokémon, as its text states.
+ *
+ * Sides are relative to the acting card's owner. `each` puts `counters` on
+ * every qualifying body; `choice` splits `counters` among bodies the player
+ * picks. Either way the client prints one line per body.
+ */
+export interface CounterSpread {
+  readonly sides: "opponent" | "self" | "both";
+  /** Only Benched Pokémon qualify. */
+  readonly benchOnly: boolean;
+  /** Only Pokémon that have an Ability qualify. */
+  readonly requiresAbility: boolean;
+  /** A name the text excludes ("except any Froslass"). */
+  readonly except: string | null;
+  readonly placement: "each" | "choice";
+  readonly counters: number;
+}
+
 /** One attack, as far as targetability is known. */
 export interface CardAttack {
   readonly name: string;
   /** `true`/`false` only when the card data states it; `null` is unknown. */
   readonly canHitBench: boolean | null;
+  /** `null` when the attack spreads no counters or the text is not recognised. */
+  readonly spread: CounterSpread | null;
+  /** Where the effect puts the acting Pokémon and its attached cards, if it leaves play. */
+  readonly leavesPlay: "hand" | "deck" | null;
+}
+
+/** One Ability. Older powers (Poké-Power, Poké-Body) are not Abilities. */
+export interface CardAbility {
+  readonly name: string;
+  readonly spread: CounterSpread | null;
+  readonly leavesPlay: "hand" | "deck" | null;
 }
 
 /** One printing of a card. */
@@ -27,6 +57,8 @@ export interface CardPrinting {
   /** The name this card evolves from, or `null` for a Basic. */
   readonly evolvesFrom: string | null;
   readonly attacks: readonly CardAttack[];
+  /** `null` when the card data does not say. */
+  readonly abilities: readonly CardAbility[] | null;
 }
 
 /** A card-data lookup, supplied by the caller. */

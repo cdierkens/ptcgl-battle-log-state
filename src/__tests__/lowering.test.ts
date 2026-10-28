@@ -41,8 +41,8 @@ describe("the lowering table", () => {
   });
 
   it("keeps the tables honest about their size", () => {
-    expect(Object.keys(MAPPED)).toHaveLength(66);
-    expect(Object.values(IGNORED).flat()).toHaveLength(162);
+    expect(Object.keys(MAPPED)).toHaveLength(69);
+    expect(Object.values(IGNORED).flat()).toHaveLength(159);
   });
 });
 
@@ -228,13 +228,11 @@ describe("lowering a line whose key the parser could not determine", () => {
     expect(lowered.diagnostics).toEqual([]);
   });
 
-  it("ignores it as unmodelled when the candidates are ignored for different reasons", () => {
+  it("lowers a prevention line, whichever of its keys printed it, to a name with no side", () => {
     const lowered = lowerLocale("en", ["Alice's Turn", "Damage to Pikachu was prevented."]);
 
-    expect(lowered.ignored).toMatchObject([{
-      key: "blog_loc_damage_blocked | blog_loc_effect_prevention_damage | blog_loc_effect_prevention_damagecounters",
-      reason: "unmodelled",
-    }]);
+    expect(lowered.events).toMatchObject([{ kind: "prevented", name: "Pikachu" }]);
+    expect(lowered.diagnostics).toEqual([]);
   });
 
   it("reports it, rather than picking, when the candidates lower differently", () => {

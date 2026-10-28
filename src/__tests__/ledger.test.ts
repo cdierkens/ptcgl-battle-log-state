@@ -4,6 +4,7 @@ import { parseBattleLog } from "@dierkens.dev/ptcgl-battle-log-parser";
 import { describe, expect, it } from "vitest";
 
 import type { CardRef, EventLocation, GameEvent } from "../events.js";
+import type { CounterSpread } from "../oracle.js";
 import { census } from "../census.js";
 import { runLedger } from "../ledger.js";
 import { lower } from "../lowering.js";
@@ -768,7 +769,8 @@ describe("the card oracle", () => {
     printings: (cardName: string) =>
       cardName === name
         ? [{
-            attacks: [{ canHitBench, name: "Test Attack" }],
+            abilities: null,
+            attacks: [{ canHitBench, leavesPlay: null, name: "Test Attack", spread: null }],
             evolvesFrom: null,
             hp,
             prizeValue: null,
@@ -946,5 +948,130 @@ describe("the card oracle", () => {
     expect(run.prefixes.stableTotal).toBe(2);
     expect(run.prefixes.stableConfirmed).toBe(2);
     expect(run.prefixes.stableDivergent).toBe(0);
+  });
+});
+
+describe("effects centred on the acting card", () => {
+  type Effect = {
+    readonly name: string;
+    readonly spread?: CounterSpread;
+    readonly leavesPlay?: "hand" | "deck";
+    readonly canHitBench?: boolean;
+  };
+  const cards = (table: Record<string, { readonly abilities?: readonly Effect[]; readonly attacks?: readonly Effect[] }>) => ({
+    printings: (name: string) => {
+      const entry = table[name];
+      const effect = (item: Effect) => ({ leavesPlay: item.leavesPlay ?? null, name: item.name, spread: item.spread ?? null });
+      return entry === undefined
+        ? null
+        : [{
+            abilities: (entry.abilities ?? []).map(effect),
+            attacks: (entry.attacks ?? []).map((item) => ({ ...effect(item), canHitBench: item.canHitBench ?? null })),
+            evolvesFrom: null,
+            hp: null,
+            prizeValue: null,
+          }];
+    },
+  });
+  const checkup = (line: number): EventLocation => ({ line, phaseIndex: 1, turn: null });
+  const inCheckup = (event: GameEvent): GameEvent => ({ ...event, at: checkup(event.at.line) });
+  const shroud: CounterSpread = {
+    benchOnly: false, counters: 1, except: "Froslass", placement: "each", requiresAbility: true, sides: "both",
+  };
+  const froslass = { abilities: [{ name: "Freezing Shroud", spread: shroud }] };
+  const withAbility = { abilities: [{ name: "Test Ability" }] };
+  const codes = (run: ReturnType<typeof runLedger>) => run.diagnostics.map((diagnostic) => diagnostic.code);
+  const shroudUsed = (line: number): GameEvent =>
+    ({ at: checkup(line), attack: "Freezing Shroud", kind: "attack", source: card("opponent", "Froslass") });
+
+  it("requires an each-effect to mark every Pokémon it qualifies", () => {
+    const events = [
+      play("opponent", "Froslass", "active", 1),
+      play("self", "Munkidori", "active", 2),
+      play("self", "Pidgey", "bench", 3),
+      shroudUsed(10),
+      inCheckup(placed("opponent", "Munkidori", 1, 11)),
+    ];
+
+    expect(codes(runLedger(events, { oracle: cards({ Froslass: froslass, Munkidori: withAbility, Pidgey: {} }) })))
+      .toEqual([]);
+    expect(codes(runLedger(events, { oracle: cards({ Froslass: froslass, Munkidori: withAbility, Pidgey: withAbility }) })))
+      .toContain("SpreadUnmarked");
+  });
+
+  it("resolves a Checkup effect once per body of the acting card", () => {
+    const run = runLedger([
+      play("opponent", "Froslass", "active", 1),
+      play("opponent", "Froslass", "bench", 2),
+      play("self", "Munkidori", "active", 3),
+      shroudUsed(10),
+      inCheckup(placed("opponent", "Munkidori", 1, 11)),
+      inCheckup(placed("opponent", "Munkidori", 1, 12)),
+    ], { oracle: cards({ Froslass: froslass, Munkidori: withAbility }) });
+
+    expect(codes(run)).toEqual([]);
+    expect(run.liveGroups.find((group) => group.name === "Munkidori")?.hp).toEqual([{ max: null, min: 21 }]);
+  });
+
+  it("counts a prevented line as the effect reaching that body", () => {
+    const run = runLedger([
+      play("opponent", "Froslass", "active", 1),
+      play("self", "Munkidori", "active", 2),
+      play("self", "Munkidori", "bench", 3),
+      shroudUsed(10),
+      inCheckup(placed("opponent", "Munkidori", 1, 11)),
+      { at: checkup(12), kind: "prevented", name: "Munkidori" },
+    ], { oracle: cards({ Froslass: froslass, Munkidori: withAbility }) });
+
+    expect(codes(run)).toEqual([]);
+  });
+
+  describe("a choice spread", () => {
+    const dive = (amounts: readonly number[]) => [
+      play("self", "Dragapult ex", "active", 1),
+      play("opponent", "Pidgey", "active", 2),
+      play("opponent", "Pidgey", "bench", 3),
+      play("opponent", "Pidgey", "bench", 4),
+      { ...damage("opponent", "Pidgey", 20, 5), attack: "Phantom Dive", source: card("self", "Dragapult ex") },
+      ...amounts.map((amount, offset) => placed("self", "Pidgey", amount, 6 + offset)),
+    ];
+    const oracle = cards({
+      "Dragapult ex": {
+        attacks: [{
+          canHitBench: false,
+          name: "Phantom Dive",
+          spread: { benchOnly: true, counters: 6, except: null, placement: "choice", requiresAbility: false, sides: "opponent" },
+        }],
+      },
+    });
+
+    it("puts each line on a different body the attack can reach", () => {
+      const informed = runLedger(dive([4, 2]), { oracle });
+
+      expect(codes(informed)).toEqual([]);
+      expect(informed.liveGroups.find((group) => group.name === "Pidgey")?.renderVariants).toBe(1);
+      expect(runLedger(dive([4, 2])).liveGroups.find((group) => group.name === "Pidgey")?.renderVariants)
+        .toBeGreaterThan(1);
+    });
+
+    it("reports lines that do not add up to the stated counters", () => {
+      expect(codes(runLedger(dive([4, 1]), { oracle }))).toContain("SpreadMismatch");
+    });
+  });
+
+  it("takes a Pokémon out of play when its own effect returns it with its attached cards", () => {
+    const events: GameEvent[] = [
+      play("self", "Pidgey", "active", 1),
+      play("self", "Dudunsparce", "bench", 2),
+      { at: loc(3), card: card("self", "Dudunsparce"), kind: "play", zone: null },
+      { at: loc(4), count: 3, kind: "draw", opening: false, revealed: [], side: "self" },
+      { at: loc(5), card: card("self", "Dudunsparce"), kind: "moveCard", to: "deck" },
+    ];
+    const live = (ability: Effect) => runLedger(events, {
+      oracle: cards({ Dudunsparce: { abilities: [ability] } }),
+    }).liveGroups.map((group) => group.name);
+
+    expect(live({ leavesPlay: "deck", name: "Run Away Draw" })).toEqual(["Pidgey"]);
+    expect(live({ name: "Run Away Draw" })).toContain("Dudunsparce");
   });
 });

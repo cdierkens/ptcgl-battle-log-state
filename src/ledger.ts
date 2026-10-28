@@ -18,8 +18,8 @@
  * diagnostic, never a silent clamp (D8).
  */
 
-import type { CardRef, CardZone, CounterDamageEvent, EventLocation, GameEvent } from "./events.js";
-import type { CardOracle } from "./oracle.js";
+import type { CardRef, CardZone, CounterDamageEvent, EventLocation, GameEvent, MoveCardEvent } from "./events.js";
+import type { CardOracle, CounterSpread } from "./oracle.js";
 import type { HiddenZone, PrizeZone, Side, Zone } from "./types.js";
 
 /**
@@ -72,6 +72,8 @@ export interface LedgerDiagnostic {
     | "Saturated"
     | "SideAmbiguous"
     | "SideMismatch"
+    | "SpreadMismatch"
+    | "SpreadUnmarked"
     | "TargetZoneUnreachable"
     | "UnknownGroup";
   readonly severity: "warning" | "error";
@@ -373,6 +375,7 @@ const actedLast = (events: readonly GameEvent[], index: number, target: CardRef)
 const CHECKUP_EFFECTS: ReadonlySet<GameEvent["kind"]> = new Set([
   "attack",
   "counterDamage",
+  "prevented",
   "damage",
   "heal",
   "moveCounters",
@@ -439,6 +442,33 @@ const counterRuns = (
     batches.set(first, [...(batches.get(first) ?? []), line]);
   });
   return batches;
+};
+
+/** The effect behind a counter run: the acting card and its stated spread. */
+interface SpreadCause {
+  readonly actor: CardRef;
+  readonly spread: CounterSpread;
+}
+
+/** Each run of owner-unnamed counter lines, by the index of its first line. */
+const counterRunStarts = (
+  events: readonly GameEvent[],
+): ReadonlyMap<number, readonly CounterDamageEvent[]> => {
+  const runs = new Map<number, CounterDamageEvent[]>();
+  let current: CounterDamageEvent[] | null = null;
+  events.forEach((line, index) => {
+    if (line.kind !== "counterDamage" || line.ownerPrinted) {
+      current = null;
+      return;
+    }
+    const last = current?.at(-1);
+    if (current === null || last === undefined || last.at.phaseIndex !== line.at.phaseIndex) {
+      current = [];
+      runs.set(index, current);
+    }
+    current.push(line);
+  });
+  return runs;
 };
 
 const sameDamage = (batch: readonly CounterDamageEvent[]): boolean =>
@@ -1316,6 +1346,264 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     }
   };
 
+  /**
+   * The counter spread of the effect printed just before a run, if the card
+   * data states one. Every printing of the actor that has the effect must agree.
+   */
+  const spreadOf = (
+    cause: GameEvent | undefined,
+    line: CounterDamageEvent,
+  ): SpreadCause | null => {
+    if (oracle === undefined || cause === undefined || cause.at.phaseIndex !== line.at.phaseIndex) {
+      return null;
+    }
+    const source = cause.kind === "attack" || cause.kind === "damage" ? cause.source : null;
+    const effect = cause.kind === "attack" || cause.kind === "damage" ? cause.attack : null;
+    if (source === null || effect === null) {
+      return null;
+    }
+    const spreads = (oracle.printings(source.name) ?? []).flatMap((printing) =>
+      [...printing.attacks, ...(printing.abilities ?? [])]
+        .filter((candidate) => candidate.name === effect)
+        .map((candidate) => candidate.spread));
+    const [first] = spreads;
+    if (first === undefined || first === null || spreads.some((spread) => JSON.stringify(spread) !== JSON.stringify(first))) {
+      return null;
+    }
+    return { actor: source, spread: first };
+  };
+
+  /** `true`/`false` only when every printing of the name agrees. */
+  const hasAbility = (name: string): boolean | null => {
+    const printings = oracle?.printings(name) ?? null;
+    if (printings === null || printings.length === 0) {
+      return null;
+    }
+    const has = printings.map((printing) => (printing.abilities === null ? null : printing.abilities.length > 0));
+    if (has.every((value) => value === true)) {
+      return true;
+    }
+    return has.every((value) => value === false) ? false : null;
+  };
+
+  const departedBy = new Set<number>();
+
+  /**
+   * A move of X to hand or deck right after X's own effect (a bare "played X",
+   * or X's attack or Ability) is X leaving play, when the card text says that
+   * effect returns X with its attached cards there. Remove one body; without
+   * the text the move stays a hidden-zone move with no source.
+   */
+  const leavePlay = (event: MoveCardEvent, index: number): void => {
+    if (oracle === undefined || (event.to !== "hand" && event.to !== "deck")) {
+      return;
+    }
+    let causeIndex = index - 1;
+    let cause = events[causeIndex];
+    while (cause !== undefined && (cause.kind === "draw" || cause.kind === "moveCard")) {
+      causeIndex -= 1;
+      cause = events[causeIndex];
+    }
+    if (cause === undefined || departedBy.has(causeIndex) || cause.at.phaseIndex !== event.at.phaseIndex) {
+      return;
+    }
+    let actor: CardRef | null = null;
+    let effect: string | null = null;
+    if (cause.kind === "play" && cause.zone === null) {
+      actor = cause.card;
+    } else if (cause.kind === "attack" || cause.kind === "damage") {
+      actor = cause.source;
+      effect = cause.attack;
+    }
+    if (actor?.side !== event.card.side || actor.name !== event.card.name) {
+      return;
+    }
+    const group = state.groups.get(keyOf(actor.side, actor.name));
+    if (group === undefined) {
+      return;
+    }
+    const effects = (oracle.printings(actor.name) ?? []).flatMap((printing) => [
+      ...printing.attacks.map((attack) => ({ isAttack: true, name: attack.name, to: attack.leavesPlay })),
+      ...(printing.abilities ?? []).map((ability) => ({ isAttack: false, name: ability.name, to: ability.leavesPlay })),
+    ]).filter((candidate) => effect === null || candidate.name === effect);
+    // A named effect must return the card on every printing; a bare "played X"
+    // names no effect, so any of X's effects that returns it will do. Attacks
+    // count: the client prints Meowth ex's Tuck Tail as "played Meowth ex".
+    const returning = effects.filter((candidate) => candidate.to === event.to);
+    if (returning.length === 0 || (effect !== null && returning.length !== effects.length)) {
+      return;
+    }
+    departedBy.add(causeIndex);
+    const onlyActive = returning.every((candidate) => candidate.isAttack);
+    removeAny(group, event.at, (value) => !onlyActive || value.zone === "active");
+    if (group.id === state.active[group.side]) {
+      const states = activeStates(group);
+      if (states.length === 0 || !states.every(Boolean)) {
+        state.active[group.side] = null;
+      }
+    }
+  };
+
+  /**
+   * Apply a run of counter lines through the scope of the effect that printed
+   * them, centred on the acting card. The printed side is the actor's owner,
+   * so the scope, not the line, picks the side. `each` marks every qualifying
+   * body once, and a qualifying body left unmarked kills its world; `choice`
+   * puts each line on a different body the effect can reach. Returns `false`
+   * when the run does not fit the scope, leaving the lines to the generic path.
+   */
+  const placeSpread = (
+    run: readonly CounterDamageEvent[],
+    cause: SpreadCause,
+    start: number,
+  ): boolean => {
+    const { spread } = cause;
+    const actor = cause.actor.side;
+    const [first] = run;
+    if (first === undefined) {
+      return false;
+    }
+    const at = first.at;
+    const last = start + run.length - 1;
+    const sides: readonly Side[] = spread.sides === "both"
+      ? [actor, otherSide(actor)]
+      : [spread.sides === "self" ? actor : otherSide(actor)];
+    const reaches = (value: MaterialValue): boolean => !spread.benchOnly || value.zone === "bench";
+    const groupsOf = (name: string): readonly MutableGroup[] => sides.flatMap((side) => {
+      const group = state.groups.get(keyOf(side, name));
+      return group === undefined ? [] : [group];
+    });
+    const reachable = (group: MutableGroup): ReadonlySet<number> =>
+      new Set([...group.variants.values()].map((values) => values.filter(reaches).length));
+    const mismatch = (why: string): boolean => {
+      diagnose("SpreadMismatch", "warning", `${why}; placing the lines without the effect's scope`, at, null);
+      return false;
+    };
+
+    // A Checkup trigger resolves once per body of the actor, under one printed
+    // "used" line, so the run is that many resolutions back to back.
+    const resolutions = at.turn === null
+      ? Math.max(1, state.groups.get(keyOf(actor, cause.actor.name))?.members ?? 1)
+      : 1;
+    const byName = new Map<string, CounterDamageEvent[]>();
+    for (const line of run) {
+      byName.set(line.target.name, [...(byName.get(line.target.name) ?? []), line]);
+    }
+    // "Damage to X was prevented" right after the run: the step reached X too.
+    const prevented = new Map<string, number>();
+    for (let next = last + 1; ; next += 1) {
+      const line = events[next];
+      if (line?.kind !== "prevented" || line.at.phaseIndex !== at.phaseIndex) {
+        break;
+      }
+      prevented.set(line.name, (prevented.get(line.name) ?? 0) + 1);
+    }
+    const marked = new Set([...byName.keys(), ...prevented.keys()]);
+    const total = run.reduce((sum, line) => sum + line.counters, 0);
+    const wrongTotal = prevented.size > 0 ? total > spread.counters : total !== spread.counters;
+    if (spread.placement === "each" ? run.some((line) => line.counters !== spread.counters) : wrongTotal) {
+      return mismatch(`the lines put ${String(total)} counters, which the effect does not`);
+    }
+    // Sums of reachable bodies the name's groups can show together.
+    const sums = (groups: readonly MutableGroup[]): ReadonlySet<number> =>
+      groups.reduce<ReadonlySet<number>>(
+        (acc, group) => new Set([...acc].flatMap((sum) => [...reachable(group)].map((count) => sum + count))),
+        new Set([0]),
+      );
+    const hits = (name: string): number => byName.get(name)?.length ?? 0;
+    const bodiesOf = (name: string): number => (hits(name) + (prevented.get(name) ?? 0)) / resolutions;
+    for (const [name, lines] of byName) {
+      if (name === spread.except || (spread.requiresAbility && hasAbility(name) === false)) {
+        return mismatch(`${name} does not qualify for the effect`);
+      }
+      const groups = groupsOf(name);
+      const fits = spread.placement === "each"
+        ? lines.length % resolutions === 0 && Number.isInteger(bodiesOf(name)) && sums(groups).has(bodiesOf(name))
+        : groups.length === 1 && [...reachable(groups[0] as MutableGroup)].some((count) => count >= lines.length);
+      if (!fits) {
+        return mismatch(`${String(lines.length)} lines name ${name}, which no reachable board explains`);
+      }
+    }
+
+    for (const [name, lines] of byName) {
+      const groups = groupsOf(name);
+      for (const group of groups) {
+        const lethal = knockoutFollows(events, last, group.side, name);
+        if (spread.placement === "each") {
+          const otherGroups = groups.filter((other) => other !== group);
+          const others = sums(otherGroups);
+          const otherMost = otherGroups.reduce((sum, other) => sum + Math.max(0, ...reachable(other)), 0);
+          const amount = first.damage * resolutions;
+          const damaged = lines.length / resolutions;
+          const spared = bodiesOf(name) - damaged;
+          expand(group, at, (values) => {
+            const count = values.filter(reaches).length;
+            if (![...others].some((other) => other + count === bodiesOf(name))) {
+              return [];
+            }
+            // Every reachable body was marked; choose which took counters.
+            const nexts: (readonly MaterialValue[])[] = [];
+            const pick = (start: number, left: number, current: readonly MaterialValue[]): void => {
+              const free = current.slice(start).filter(reaches).length;
+              if (left === 0) {
+                nexts.push(current);
+                return;
+              }
+              if (free < left) {
+                return;
+              }
+              current.forEach((value, body) => {
+                if (body >= start && reaches(value)) {
+                  pick(body + 1, left - 1, current.map((v, i) => (i === body ? damageValue(value, amount, lethal) : v)));
+                }
+              });
+            };
+            const least = Math.max(0, damaged - otherMost, count - spared);
+            for (let take = least; take <= Math.min(count, damaged); take += 1) {
+              pick(0, take, values);
+            }
+            return nexts;
+          });
+          continue;
+        }
+        const amounts = lines.map((line) => line.damage);
+        expand(group, at, (values) => {
+          const nexts: (readonly MaterialValue[])[] = [];
+          const assign = (next: number, current: readonly MaterialValue[], used: ReadonlySet<number>): void => {
+            const amount = amounts[next];
+            if (amount === undefined) {
+              nexts.push(current);
+              return;
+            }
+            current.forEach((value, body) => {
+              if (!used.has(body) && reaches(value)) {
+                assign(next + 1, current.map((v, i) => (i === body ? damageValue(value, amount, lethal) : v)), new Set([...used, body]));
+              }
+            });
+          };
+          assign(0, values, new Set());
+          return nexts;
+        });
+      }
+    }
+
+    if (spread.placement === "each") {
+      for (const group of state.groups.values()) {
+        const qualifies = group.live && group.members > 0 && sides.includes(group.side) && !marked.has(group.name)
+          && group.name !== spread.except && (!spread.requiresAbility || hasAbility(group.name) === true);
+        if (!qualifies) {
+          continue;
+        }
+        if (!reachable(group).has(0)) {
+          diagnose("SpreadUnmarked", "warning", `${group.name} qualifies for the effect but no line marks it`, at, group);
+          continue;
+        }
+        expand(group, at, (values) => (values.some(reaches) ? [] : [values]));
+      }
+    }
+    return true;
+  };
+
   /** Move counters named by a line that does not name either owner. */
   const moveUnprinted = (
     from: CardRef,
@@ -1867,6 +2155,14 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
   };
 
   const counterBatches = counterRuns(events);
+  const spreadRuns = new Map(
+    [...counterRunStarts(events)].flatMap(([start, run]) => {
+      const [line] = run;
+      const cause = line === undefined ? null : spreadOf(events[start - 1], line);
+      return cause === null ? [] : [[start, { cause, run }] as const];
+    }),
+  );
+  const spreadLines = new Set<GameEvent>();
   const batchedLines = new Set<GameEvent>(
     [...counterBatches.values()].flatMap((batch) => (batch.length > 1 && sameDamage(batch) ? batch : [])),
   );
@@ -1892,7 +2188,15 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       case "attach":
         attachTo(event.target, event.card, event.zone, at);
         break;
-      case "counterDamage":
+      case "counterDamage": {
+        if (spreadLines.has(event)) {
+          break;
+        }
+        const scoped = spreadRuns.get(index);
+        if (scoped !== undefined && placeSpread(scoped.run, scoped.cause, index)) {
+          scoped.run.forEach((line) => spreadLines.add(line));
+          break;
+        }
         if (batchedLines.has(event)) {
           const batch = counterBatches.get(index);
           if (batch !== undefined) {
@@ -1916,6 +2220,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
           );
         }
         break;
+      }
       case "damage":
         damageGroup(
           event.target,
@@ -1951,6 +2256,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
         break;
       case "moveCard":
         moveCard(event.card, event.to, at);
+        leavePlay(event, index);
         break;
       case "moveCounters":
         if (event.ownerPrinted) {

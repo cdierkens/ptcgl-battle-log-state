@@ -384,7 +384,15 @@ const BREAKDOWN_LABEL = "blog_loc_export_damage_breakdown_label";
  * meaning between families (`sourceCardName` is the Energy in `attach` and the
  * pre-evolution in `evolve`).
  */
+// The three keys print the same sentence; one handler lets an undetermined line lower.
+const prevented: Handler = (input) => [
+  { at: at(input), kind: "prevented", name: need(input, "targetPokemonCardName") },
+];
+
 export const MAPPED: Readonly<Record<string, Handler>> = {
+  blog_loc_damage_blocked: prevented,
+  blog_loc_effect_prevention_damage: prevented,
+  blog_loc_effect_prevention_damagecounters: prevented,
   blog_loc_added_prize: (input) => [
     {
       at: at(input),
@@ -653,7 +661,7 @@ export const IGNORED: Readonly<Record<IgnoreReason, readonly string[]>> = {
   ],
   fragment: [
     "blog_loc_a_card", "blog_loc_an_ability", "blog_loc_an_action",
-    "blog_loc_an_attack", "blog_loc_another_card", "blog_loc_damage_blocked",
+    "blog_loc_an_attack", "blog_loc_another_card",
     "blog_loc_hidden_card", "blog_loc_move_blocked", "blog_loc_number_of_cards",
     "blog_loc_unspecified_pokemon",
   ],
@@ -685,7 +693,7 @@ export const IGNORED: Readonly<Record<IgnoreReason, readonly string[]>> = {
     "blog_loc_condition_paralyzed", "blog_loc_condition_poisoned", "blog_loc_effect_prevention_allactioneffects",
     "blog_loc_effect_prevention_allcardeffects", "blog_loc_effect_prevention_allsubactions", "blog_loc_effect_prevention_blockmovement",
     "blog_loc_effect_prevention_blockplayerselections", "blog_loc_effect_prevention_blockstatuseffects", "blog_loc_effect_prevention_burnrecovery",
-    "blog_loc_effect_prevention_damage", "blog_loc_effect_prevention_damagecounters", "blog_loc_effect_prevention_fallback",
+    "blog_loc_effect_prevention_fallback",
     "blog_loc_effect_prevention_heal", "blog_loc_effect_prevention_onlyeffects", "blog_loc_move_to_fallback",
     "blog_loc_remove_all_effects", "blog_loc_remove_condition", "blog_loc_special_condition",
     "blog_loc_switched_fallback",

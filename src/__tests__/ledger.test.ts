@@ -831,6 +831,22 @@ describe("the card oracle", () => {
     expect(run.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([]);
   });
 
+  it("resolves retaliation counters printed after the knockout they cause", () => {
+    const run = runLedger([
+      play("self", "Pidgey", "active", 1),
+      play("opponent", "Sharpedo", "active", 2),
+      damage("self", "Pidgey", 30, 3),
+      damage("opponent", "Sharpedo", 70, 4),
+      knockout("self", "Pidgey", 5),
+      detach("self", "Pidgey", ["Basic Darkness Energy"], 6),
+      // Punk Helmet: the export names the defender's owner, not the attacker's.
+      placed("opponent", "Pidgey", 4, 7),
+    ], { oracle: oracle("Pidgey", 60) });
+
+    expect(run.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain("KnockoutUnproven");
+    expect(run.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain("UnknownGroup");
+  });
+
   it("puts one Checkup effect's counters on distinct bodies", () => {
     const checkup = (line: number) => ({ line, phaseIndex: 1, turn: null });
     const shroud = (lines: number): GameEvent[] => [
@@ -1084,6 +1100,19 @@ describe("effects centred on the acting card", () => {
       expect(informed.liveGroups.find((group) => group.name === "Pidgey")?.renderVariants).toBe(1);
       expect(runLedger(dive([4, 2])).liveGroups.find((group) => group.name === "Pidgey")?.renderVariants)
         .toBeGreaterThan(1);
+    });
+
+    it("keeps retaliation printed after the knockout out of the attack's spread", () => {
+      const [first, active, ...rest] = dive([4, 2]);
+      const events = [
+        first, active, attach("opponent", "Pidgey", "Punk Helmet", 2, "active"), ...rest,
+        knockout("opponent", "Pidgey", 8),
+        detach("opponent", "Pidgey", ["Punk Helmet"], 9),
+        placed("opponent", "Dragapult ex", 4, 10),
+      ].filter((event) => event !== undefined);
+
+      // The export names the defender's owner; the ledger notes it and resolves it.
+      expect(codes(runLedger(events, { oracle }))).toEqual(["SideMismatch"]);
     });
 
     it("reports lines that do not add up to the stated counters", () => {

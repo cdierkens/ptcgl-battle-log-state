@@ -418,6 +418,45 @@ const checkupOrder = (events: readonly GameEvent[]): readonly GameEvent[] => {
 };
 
 /**
+ * Put counters printed after a knockout and its discard line before the
+ * knockout. Retaliation (Punk Helmet, Spiky Energy) resolves during the attack,
+ * before knockouts are checked, but the export prints it after them.
+ */
+const retaliationOrder = (
+  events: readonly GameEvent[],
+): { readonly events: readonly GameEvent[]; readonly moved: ReadonlySet<GameEvent> } => {
+  const out = [...events];
+  const moved = new Set<GameEvent>();
+  for (let index = 1; index < out.length; index += 1) {
+    const event = out[index];
+    if (event?.kind !== "counterDamage") {
+      continue;
+    }
+    let start = index;
+    while (start > 0) {
+      const before = out[start - 1];
+      if (
+        before === undefined || before.at.phaseIndex !== event.at.phaseIndex
+        || (before.kind !== "knockout" && before.kind !== "detach")
+      ) {
+        break;
+      }
+      start -= 1;
+    }
+    if (start < index && out[start]?.kind === "knockout") {
+      out.splice(index, 1);
+      out.splice(start, 0, event);
+      moved.add(event);
+    }
+  }
+  return { events: out, moved };
+};
+
+/** Moved retaliation lines never share a run with the attack's own counter lines. */
+const sameStep = (moved: ReadonlySet<GameEvent>, previous: GameEvent, line: GameEvent): boolean =>
+  previous.at.phaseIndex === line.at.phaseIndex && moved.has(previous) === moved.has(line);
+
+/**
  * Owner-unnamed counter lines from one effect step, by the index of the first
  * line of each target name. The client builds one modification per step with
  * one entry per target card and prints them as a contiguous run, so k lines
@@ -425,13 +464,14 @@ const checkupOrder = (events: readonly GameEvent[]): readonly GameEvent[] => {
  */
 const counterRuns = (
   events: readonly GameEvent[],
+  moved: ReadonlySet<GameEvent>,
 ): ReadonlyMap<number, readonly CounterDamageEvent[]> => {
   const batches = new Map<number, CounterDamageEvent[]>();
   let firstByName = new Map<string, number>();
   let previous: GameEvent | undefined;
   events.forEach((line, index) => {
     const continues = previous?.kind === "counterDamage" && !previous.ownerPrinted
-      && previous.at.phaseIndex === line.at.phaseIndex;
+      && sameStep(moved, previous, line);
     if (!continues) {
       firstByName = new Map();
     }
@@ -455,6 +495,7 @@ interface SpreadCause {
 /** Each run of owner-unnamed counter lines, by the index of its first line. */
 const counterRunStarts = (
   events: readonly GameEvent[],
+  moved: ReadonlySet<GameEvent>,
 ): ReadonlyMap<number, readonly CounterDamageEvent[]> => {
   const runs = new Map<number, CounterDamageEvent[]>();
   let current: CounterDamageEvent[] | null = null;
@@ -464,7 +505,7 @@ const counterRunStarts = (
       return;
     }
     const last = current?.at(-1);
-    if (current === null || last === undefined || last.at.phaseIndex !== line.at.phaseIndex) {
+    if (current === null || last === undefined || !sameStep(moved, last, line)) {
       current = [];
       runs.set(index, current);
     }
@@ -549,7 +590,7 @@ const collectBoardNames = (events: readonly GameEvent[]): ReadonlySet<string> =>
  * what keeps the census an upper bound rather than a solver.
  */
 export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions = {}): LedgerRun => {
-  const events = checkupOrder(logged);
+  const { events, moved } = retaliationOrder(checkupOrder(logged));
   const cap = options.maxVariants ?? 4096;
   const oracle = options.oracle;
   const boardNames = collectBoardNames(events);
@@ -2287,9 +2328,9 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     });
   };
 
-  const counterBatches = counterRuns(events);
+  const counterBatches = counterRuns(events, moved);
   const spreadRuns = new Map(
-    [...counterRunStarts(events)].flatMap(([start, run]) => {
+    [...counterRunStarts(events, moved)].flatMap(([start, run]) => {
       const [line] = run;
       const cause = line === undefined ? null : spreadOf(events[start - 1], line);
       return cause === null ? [] : [[start, { cause, run }] as const];

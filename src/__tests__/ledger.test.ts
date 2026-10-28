@@ -1087,6 +1087,45 @@ describe("the card oracle", () => {
     ], "attacker")).toEqual([4, 5]);
   });
 
+  it("floors the damage a bare-printed attack could have dealt", () => {
+    // Tuck Tail prints as "played Meowth ex." with no damage; Adrena-Brain later moves it off.
+    const moved = (from: string): GameEvent => ({
+      at: loc(4),
+      cause: "Adrena-Brain",
+      counters: 3,
+      damage: 30,
+      from: card("self", from),
+      kind: "moveCounters",
+      ownerPrinted: false,
+      to: card("opponent", "Celebi"),
+    });
+    const codes = (from: string, between: readonly GameEvent[], canHitBench: boolean | null) => runLedger([
+      play("self", "Yveltal", "active", 1),
+      play("self", "Budew", "bench", 1),
+      play("opponent", "Meowth ex", "active", 2),
+      play("opponent", "Celebi", "bench", 2),
+      ...between,
+      moved(from),
+    ], { oracle: oracle("Meowth ex", 170, canHitBench) }).diagnostics.map((diagnostic) => diagnostic.code);
+    const bare: GameEvent = { at: loc(3), card: card("opponent", "Meowth ex"), kind: "play", zone: null };
+
+    expect(codes("Yveltal", [], false)).toContain("HealOverflow");
+    expect(codes("Yveltal", [bare], false)).not.toContain("HealOverflow");
+    // An attack known to reach only the Active leaves the Bench exact.
+    expect(codes("Budew", [bare], false)).toContain("HealOverflow");
+    expect(codes("Budew", [bare], null)).not.toContain("HealOverflow");
+
+    // A floor never proves a knockout, so an unfloored body stays a candidate.
+    const knocked = runLedger([
+      play("self", "Yveltal", "active", 1),
+      play("opponent", "Meowth ex", "active", 2),
+      bare,
+      { ...play("self", "Yveltal", "bench", 5), at: { ...loc(5), phaseIndex: 1 } },
+      { ...knockout("self", "Yveltal", 6), at: { ...loc(6), phaseIndex: 2 } },
+    ], { oracle: oracle("Yveltal", 120, false) });
+    expect(knocked.liveGroups.find((group) => group.name === "Yveltal")?.zoneCounts).toHaveLength(2);
+  });
+
   it("prunes a world where a body survived more damage than its card's HP", () => {
     const run = runLedger([
       play("self", "Slowpoke", "active", 1),

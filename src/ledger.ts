@@ -39,6 +39,11 @@ export interface HpInterval {
 export interface MaterialValue {
   readonly zone: Zone;
   readonly damage: number;
+  /**
+   * `damage` is a lower bound: an attack the export printed without its damage
+   * may have added more. Set until the body leaves play.
+   */
+  readonly damageFloor?: true;
   /** Energy and Tools attached to this body. */
   readonly attachments: readonly string[];
   /** Cards underneath it in the evolution stack, oldest first. */
@@ -209,10 +214,20 @@ interface LedgerState {
 
 const keyOf = (side: Side, name: string): string => `${side}\u0000${name}`;
 
+const damageKey = (value: MaterialValue): string =>
+  `${value.damageFloor === true ? ">=" : ""}${String(value.damage)}`;
+
+/** Whether a body can have carried `amount` damage. */
+const carries = (value: MaterialValue, amount: number): boolean =>
+  value.damageFloor === true || value.damage >= amount;
+
+const loseDamage = (value: MaterialValue, amount: number): MaterialValue =>
+  ({ ...value, damage: Math.max(0, value.damage - amount) });
+
 const valueKey = (value: MaterialValue): string =>
   [
     value.zone,
-    String(value.damage),
+    damageKey(value),
     [...value.attachments].sort().join("\u0001"),
     [...value.under].join("\u0001"),
     String(value.hp.min),
@@ -222,7 +237,7 @@ const valueKey = (value: MaterialValue): string =>
 const renderKey = (value: MaterialValue): string =>
   [
     value.zone,
-    String(value.damage),
+    damageKey(value),
     [...value.attachments].sort().join("\u0001"),
     [...value.under].join("\u0001"),
   ].join("\u0000");
@@ -1154,7 +1169,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     capped = false,
   ): void => {
     // A heal line prints the effect's amount; it removes up to that, with a floor of 0.
-    const exact = (value: MaterialValue): boolean => capped || value.damage >= amount;
+    const exact = (value: MaterialValue): boolean => capped || carries(value, amount);
     const exactPossible = hasMatch(group, exact);
     if (!exactPossible) {
       diagnose("HealOverflow", "warning", `${what} exceeds the tracked damage on ${name}`, at, group);
@@ -1163,7 +1178,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       group,
       at,
       (value) => (exactPossible ? exact(value) : true),
-      (value) => ({ ...value, damage: Math.max(0, value.damage - amount) }),
+      (value) => loseDamage(value, amount),
     );
   };
 
@@ -1311,8 +1326,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       }
       return;
     }
-    const carries = (value: MaterialValue): boolean => capped || value.damage >= amount;
-    const viable = [printed, other].filter((group) => hasMatch(group, carries));
+    const viable = [printed, other].filter((group) => hasMatch(group, (value) => capped || carries(value, amount)));
     const only = viable.length === 1 ? viable[0] : undefined;
     if (only !== undefined) {
       if (only === other) {
@@ -1342,10 +1356,10 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       expand(group, at, (values) => [
         values,
         ...values.flatMap((value, index) =>
-          carries(value)
+          capped || carries(value, amount)
             ? [[
               ...values.slice(0, index),
-              { ...value, damage: Math.max(0, value.damage - amount) },
+              loseDamage(value, amount),
               ...values.slice(index + 1),
             ]]
             : []),
@@ -1365,17 +1379,17 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     at: EventLocation,
     index: number,
   ): void => {
-    const carries = (value: MaterialValue): boolean => value.damage >= amount;
+    const carriesMove = (value: MaterialValue): boolean => carries(value, amount);
     const groupOn = (side: Side): MutableGroup | undefined => state.groups.get(keyOf(side, ref.name));
     const within = (group: MutableGroup | undefined): boolean =>
       group !== undefined && [...group.variants.values()].some((values) =>
-        values.length > 1 && values.some(carries));
+        values.length > 1 && values.some(carriesMove));
     const sides: readonly Side[] = [ref.side, otherSide(ref.side)];
     const placements = sides.flatMap((source) => sides.flatMap((target) => {
       const from = groupOn(source);
       const fits = source === target
         ? within(from)
-        : from !== undefined && hasMatch(from, carries) && groupOn(target) !== undefined;
+        : from !== undefined && hasMatch(from, carriesMove) && groupOn(target) !== undefined;
       return fits ? [{ source, target }] : [];
     }));
     const only = placements.length === 1 ? placements[0] : undefined;
@@ -1417,10 +1431,10 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
             nexts.push(values.map((value, i) => (i === sourceIndex ? damageValue(value, amount, lethal) : value)));
             return;
           }
-          if (!carries(source)) {
+          if (!carriesMove(source)) {
             return;
           }
-          const lost = values.map((value, i) => (i === sourceIndex ? { ...value, damage: value.damage - amount } : value));
+          const lost = values.map((value, i) => (i === sourceIndex ? loseDamage(value, amount) : value));
           if (role === "lose") {
             nexts.push(lost);
             return;
@@ -1996,6 +2010,42 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     return group?.live === true && state.active[event.card.side] === group.id ? event.card : null;
   };
 
+  /** Whether a damage or counter line follows `index` in its phase, printing a bare attack's damage. */
+  const damagePrintedAfter = (index: number): boolean => {
+    const at = events[index]?.at;
+    for (let next = index + 1; next < events.length; next += 1) {
+      const event = events[next];
+      if (event === undefined || at === undefined || event.at.phaseIndex !== at.phaseIndex) {
+        return false;
+      }
+      if (event.kind === "damage" || event.kind === "counterDamage") {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  /**
+   * A bare attack's damage is unprinted, so every opposing body it could reach
+   * carries a damage floor: the Active, and the Bench unless every attack of
+   * the attacker is known not to reach it.
+   */
+  const floorDefenders = (attacker: CardRef, at: EventLocation): void => {
+    const printings = oracle?.printings(attacker.name) ?? null;
+    const activeOnly = printings !== null && printings.every((printing) =>
+      printing.attacks.every((attack) => attack.canHitBench === false));
+    const side = otherSide(attacker.side);
+    for (const group of state.groups.values()) {
+      if (group.side !== side || !group.live) {
+        continue;
+      }
+      expand(group, at, (values) => [values.map((value) =>
+        value.damageFloor === true || (activeOnly && value.zone !== "active")
+          ? value
+          : { ...value, damageFloor: true })]);
+    }
+  };
+
   /**
    * The Pokémon whose attack or effect `index` follows in its phase, and
    * whether the log printed damage for it: a named attack, or any damage or
@@ -2066,7 +2116,9 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     // The Stadium's reduction may not apply (unknown stage, a Stadium that has
     // left play), so it only widens the candidates and never narrows them.
     const reduction = hpReduction(target.name);
-    const lethal = (value: MaterialValue): boolean => value.damage >= value.hp.min - reduction;
+    const lethal = (value: MaterialValue): boolean =>
+      value.damageFloor === true || value.damage >= value.hp.min - reduction;
+    // Exact damage only: a floor never proves a knockout, so it must not narrow the candidates.
     const lethalAtPrintedHp = (value: MaterialValue): boolean => value.damage >= value.hp.min;
 
     // Any body that damage could have knocked out is a candidate, in any zone;
@@ -2615,7 +2667,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     const group = fromGroup;
     const canMove = [...group.variants.values()].some((values) =>
       values.some((source, sourceIndex) =>
-        source.damage >= amount && values.some((_target, targetIndex) => targetIndex !== sourceIndex)));
+        carries(source, amount) && values.some((_target, targetIndex) => targetIndex !== sourceIndex)));
     if (!canMove) {
       diagnose(
         "HealOverflow",
@@ -2630,7 +2682,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     expand(group, at, (values) => {
       const nexts: (readonly MaterialValue[])[] = [];
       values.forEach((source, sourceIndex) => {
-        if (source.damage < amount) {
+        if (!carries(source, amount)) {
           return;
         }
         values.forEach((target, targetIndex) => {
@@ -2638,7 +2690,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
             return;
           }
           const next = [...values];
-          next[sourceIndex] = { ...source, damage: source.damage - amount };
+          next[sourceIndex] = loseDamage(source, amount);
           next[targetIndex] = damageValue(target, amount, lethal);
           nexts.push(next);
         });
@@ -2774,9 +2826,14 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
           moveUnprinted(event.from, event.to, event.damage, at, index);
         }
         break;
-      case "play":
+      case "play": {
+        const bare = bareAttack(event);
+        if (bare !== null && !damagePrintedAfter(index)) {
+          floorDefenders(bare, at);
+        }
         playCard(event.card, event.zone, at);
         break;
+      }
       case "prizeRevealed":
         state.hand[event.side].known.push(event.card);
         break;

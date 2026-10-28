@@ -94,12 +94,13 @@ const OPPONENT_ACTIVE = /\b(?:your opponent's Active Pokémon|the Defending Pok�
 
 /**
  * Whom English effect text Knocks Out outright. Conditions (coin flips, exact
- * counter totals) are dropped, so it is a ceiling; reactive text such as
- * "the Attacking Pokémon" is not recognised.
+ * counter totals) are dropped, so it is a ceiling. "The Attacking Pokémon" is
+ * `attacker`: it answers a knockout rather than acting on its own.
  */
 export const knocksOutFromText = (effect: string): KnockoutReach => {
   let self = false;
   let opponent = false;
+  let attacker = false;
   for (const sentence of effect.replace(/[’‘]/g, "'").split(/(?<=\.)\s+/)) {
     const trimmed = sentence.trim();
     if (!KNOCKED_OUT.test(trimmed)) {
@@ -110,9 +111,11 @@ export const knocksOutFromText = (effect: string): KnockoutReach => {
       opponent = true;
     } else if (/\bthis Pokémon is Knocked Out\.$/i.test(trimmed)) {
       self = true;
+    } else if (/\bthe Attacking Pokémon is Knocked Out\.$/i.test(trimmed)) {
+      attacker = true;
     } else if (OPPONENT_ACTIVE.test(trimmed)) {
       opponent = true;
     }
   }
-  return self && opponent ? "both" : self ? "self" : opponent ? "opponent" : null;
+  return self && opponent ? "both" : self ? "self" : opponent ? "opponent" : attacker ? "attacker" : null;
 };

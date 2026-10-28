@@ -970,6 +970,50 @@ describe("the card oracle", () => {
     expect(codes("Terminal Period", null, null)).toContain("KnockoutUnproven");
   });
 
+  it("accepts the knockouts of a bare-printed attack and the effect that answers it", () => {
+    const fainting = (reach: KnockoutReach): CardOracle => ({
+      printings: (name) => [{
+        abilities: name === "Gengar ex" ? [{ knocksOut: reach, leavesPlay: null, name: "Fainting Spell", spread: null }] : [],
+        attacks: [],
+        evolvesFrom: null,
+        hp: 300,
+        prizeValue: null,
+        stage: null,
+      }],
+    });
+    const unproven = (between: readonly GameEvent[], reach: KnockoutReach) => runLedger([
+      play("self", "Mega Sharpedo ex", "active", 1),
+      play("opponent", "Gengar ex", "active", 2),
+      ...between,
+      knockout("opponent", "Gengar ex", 4),
+      knockout("self", "Mega Sharpedo ex", 5),
+    ], { oracle: fainting(reach) }).diagnostics
+      .flatMap((diagnostic) => (diagnostic.code === "KnockoutUnproven" ? [diagnostic.at.line] : []));
+    // The export prints Hungry Jaws as "played Mega Sharpedo ex." with no damage line.
+    const bare: GameEvent = { at: loc(3), card: card("self", "Mega Sharpedo ex"), kind: "play", zone: null };
+    const hit: GameEvent = {
+      amount: 100,
+      at: loc(3),
+      attack: "Greedy Fang",
+      kind: "damage",
+      modifiers: [],
+      source: card("self", "Mega Sharpedo ex"),
+      target: card("opponent", "Gengar ex"),
+    };
+
+    expect(unproven([bare], "attacker")).toEqual([]);
+    expect(unproven([bare], null)).toEqual([5]);
+    expect(unproven([hit], "attacker")).toEqual([4]);
+    expect(unproven([hit], null)).toEqual([4, 5]);
+    // A printed counter line is evidence; 30 damage cannot explain the knockout.
+    expect(unproven([bare, placed("opponent", "Gengar ex", 3, 3)], "attacker")).toEqual([4]);
+    // A bare play from the Bench is an Ability, not an attack.
+    expect(unproven([
+      play("self", "Dudunsparce", "bench", 3),
+      { at: loc(3), card: card("self", "Dudunsparce"), kind: "play", zone: null },
+    ], "attacker")).toEqual([4, 5]);
+  });
+
   it("prunes a world where a body survived more damage than its card's HP", () => {
     const run = runLedger([
       play("self", "Slowpoke", "active", 1),

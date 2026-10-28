@@ -45,9 +45,11 @@ export interface CardAttack {
 
 /**
  * Whom an effect's text Knocks Out outright, ignoring its conditions:
- * `opponent` is the opponent's Active, `self` the acting Pokémon, `both` both Actives.
+ * `opponent` is the opponent's Active, `self` the acting Pokémon, `both` both
+ * Actives, and `attacker` the Pokémon whose attack Knocked Out the effect's
+ * owner (Fainting Spell).
  */
-export type KnockoutReach = "opponent" | "self" | "both" | null;
+export type KnockoutReach = "opponent" | "self" | "both" | "attacker" | null;
 
 /** One Ability. Older powers (Poké-Power, Poké-Body) are not Abilities. */
 export interface CardAbility {

@@ -75,9 +75,12 @@ describe("reading whom an effect Knocks Out outright", () => {
     expect(knocksOutFromText("Both Active Pokémon are Knocked Out.")).toBe("both");
   });
 
-  it("does not read a reactive or conditional knockout", () => {
-    expect(knocksOutFromText("If this Pokémon is damaged by an attack, flip a coin. If heads, the Attacking Pokémon is Knocked Out."))
-      .toBeNull();
+  it("reads a knockout that answers an attack as the attacker", () => {
+    expect(knocksOutFromText("If this Pokémon is Knocked Out by damage from an attack from your opponent's Pokémon, flip a coin. If heads, the Attacking Pokémon is Knocked Out."))
+      .toBe("attacker");
+  });
+
+  it("does not read a conditional knockout", () => {
     expect(knocksOutFromText("If this Pokémon is Knocked Out by damage from an attack, take 1 more Prize card.")).toBeNull();
   });
 });

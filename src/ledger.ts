@@ -1875,6 +1875,76 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     return false;
   };
 
+  /** A bare "played X" naming the Active Pokémon is the export's print of X's attack (Tuck Tail). */
+  const bareAttack = (event: GameEvent | undefined): CardRef | null => {
+    if (event?.kind !== "play" || event.zone !== null) {
+      return null;
+    }
+    const group = state.groups.get(keyOf(event.card.side, event.card.name));
+    return group?.live === true && state.active[event.card.side] === group.id ? event.card : null;
+  };
+
+  /**
+   * The Pokémon whose attack or effect `index` follows in its phase, and
+   * whether the log printed damage for it: a named attack, or any damage or
+   * counter line after a bare one.
+   */
+  const attackerBefore = (index: number): { card: CardRef; printed: boolean } | null => {
+    const at = events[index]?.at;
+    let damaged = false;
+    for (let back = index - 1; back >= 0; back -= 1) {
+      const event = events[back];
+      if (event === undefined || at === undefined || event.at.phaseIndex !== at.phaseIndex) {
+        return null;
+      }
+      if ((event.kind === "attack" || event.kind === "damage") && event.source !== null) {
+        return { card: event.source, printed: true };
+      }
+      if (event.kind === "damage" || event.kind === "counterDamage") {
+        damaged = true;
+      }
+      const bare = bareAttack(event);
+      if (bare !== null) {
+        return { card: bare, printed: damaged };
+      }
+    }
+    return null;
+  };
+
+  /**
+   * Whether `target` attacked a Pokémon Knocked Out earlier in this phase whose
+   * text Knocks Out the Attacking Pokémon (Fainting Spell). Conditions are not checked.
+   */
+  const answersKnockout = (index: number, target: CardRef): boolean => {
+    const at = events[index]?.at;
+    if (oracle === undefined || at === undefined) {
+      return false;
+    }
+    for (let back = index - 1; back >= 0; back -= 1) {
+      const event = events[back];
+      if (event === undefined || event.at.phaseIndex !== at.phaseIndex) {
+        return false;
+      }
+      if (event.kind !== "knockout" || event.target.side === target.side) {
+        continue;
+      }
+      const answers = (oracle.printings(event.target.name) ?? [])
+        .flatMap((printing) => [...printing.attacks, ...(printing.abilities ?? [])])
+        .some((effect) => effect.knocksOut === "attacker");
+      const attacker = attackerBefore(back)?.card;
+      if (answers && attacker?.side === target.side && attacker.name === target.name) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  /** Whether `target`'s knockout follows an opposing attack the export printed without its damage. */
+  const unprintedDamage = (index: number, target: CardRef): boolean => {
+    const attacker = attackerBefore(index);
+    return attacker !== null && !attacker.printed && attacker.card.side !== target.side;
+  };
+
   const startKnockout = (target: CardRef, at: EventLocation, index: number): void => {
     const group = resolveGroup(target, "knockout", at);
     if (group === null) {
@@ -1910,7 +1980,13 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
 
     const lethalOptions = [...options.values()].filter((option) =>
       option.removed.every(lethal));
-    if (lethalOptions.length === 0 && !actedLast(events, index, target) && !effectKnocksOut(index, target)) {
+    if (
+      lethalOptions.length === 0
+      && !actedLast(events, index, target)
+      && !effectKnocksOut(index, target)
+      && !answersKnockout(index, target)
+      && !unprintedDamage(index, target)
+    ) {
       diagnose(
         "KnockoutUnproven",
         "warning",

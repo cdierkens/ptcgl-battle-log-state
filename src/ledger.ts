@@ -680,6 +680,15 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     return "active";
   };
 
+  const lineFindings: ReadonlySet<LedgerDiagnostic["code"]> = new Set([
+    // Counted by `minBench`, which already skips frozen groups.
+    "BenchOverflow",
+    "NoVariant",
+    "Saturated",
+    "SideAmbiguous",
+    "SideMismatch",
+  ]);
+
   const diagnose = (
     code: LedgerDiagnostic["code"],
     severity: LedgerDiagnostic["severity"],
@@ -687,6 +696,11 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     at: EventLocation,
     group: MutableGroup | null,
   ): void => {
+    // A saturated group is frozen, so checking later events against it reports
+    // the freeze, not the log. `Saturated` already said it stopped checking.
+    if (group?.saturated === true && !lineFindings.has(code)) {
+      return;
+    }
     state.diagnostics.push({
       at,
       code,

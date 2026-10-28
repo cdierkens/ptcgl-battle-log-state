@@ -310,6 +310,37 @@ describe("identity groups", () => {
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("Saturated");
   });
 
+  it("does not check later events against a frozen group", () => {
+    const run = runLedger(
+      [
+        play("self", "Kangaskhan", "bench", 1),
+        play("self", "Kangaskhan", "bench", 2),
+        attach("self", "Kangaskhan", "Psychic Energy", 3),
+        attach("self", "Kangaskhan", "Psychic Energy", 4),
+        { at: loc(5), card: card("self", "Kangaskhan"), kind: "moveCard", to: "active" },
+        attach("self", "Kangaskhan", "Psychic Energy", 6, "active"),
+      ],
+      { maxVariants: 1 },
+    );
+
+    expect(run.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["Saturated"]);
+  });
+
+  it("still reports a full Bench when a frozen group moves to it", () => {
+    const run = runLedger(
+      [
+        play("self", "Kangaskhan", "active", 1),
+        play("self", "Kangaskhan", "bench", 2),
+        attach("self", "Kangaskhan", "Psychic Energy", 3),
+        ...["A", "B", "C", "D", "E"].map((name, index) => play("self", name, "bench", 4 + index)),
+        { at: loc(9), card: card("self", "Kangaskhan"), kind: "moveCard", to: "bench" },
+      ],
+      { maxVariants: 1 },
+    );
+
+    expect(run.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["Saturated", "BenchOverflow"]);
+  });
+
   it("keeps a sixth Bench play as a warning, not an unexecutable", () => {
     const run = runLedger([
       play("self", "A", "bench", 1),

@@ -57,6 +57,8 @@ export interface CardAbility {
   readonly spread: CounterSpread | null;
   readonly leavesPlay: "hand" | "deck" | null;
   readonly knocksOut: KnockoutReach;
+  /** HP the Ability can add to its own Pokémon, conditions dropped (Okidogi's Adrena-Power). */
+  readonly hpRaise?: number | null;
 }
 
 /** An evolution stage as printed. */
@@ -82,6 +84,8 @@ export interface StadiumFacts {
   readonly benchLimit: number | null;
   /** HP every Pokémon of one stage in play loses (Gravity Mountain), or `null`. */
   readonly hpReduction: HpReduction | null;
+  /** HP every Pokémon of one stage in play gains (Lively Stadium), or `null`. */
+  readonly hpRaise?: HpReduction | null;
 }
 
 /** What a Trainer card's effect does that the ledger must follow. */

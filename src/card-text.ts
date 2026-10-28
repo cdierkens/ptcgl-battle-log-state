@@ -89,6 +89,26 @@ export const hpReductionFromText = (effect: string): HpReduction | null => {
   return { amount: Number(match[2]), stage: stage === "Stage1" || stage === "Stage2" ? stage : "Basic" };
 };
 
+const HP_RAISE = /\bEach (Basic|Stage 1|Stage 2) Pokémon in play \(both yours and your opponent's\) gets \+(\d+) HP\./i;
+
+/** The HP a Stadium's English text gives every Pokémon of one stage in play. */
+export const hpRaiseFromText = (effect: string): HpReduction | null => {
+  const match = HP_RAISE.exec(effect.replace(/[’‘]/g, "'"));
+  if (match?.[1] === undefined || match[2] === undefined) {
+    return null;
+  }
+  const stage = match[1].replace(/\s/g, "");
+  return { amount: Number(match[2]), stage: stage === "Stage1" || stage === "Stage2" ? stage : "Basic" };
+};
+
+const SELF_HP_RAISE = /\bthis Pokémon\b[^.]*?\bgets \+(\d+) HP\b/i;
+
+/** The HP an Ability's English text can add to its own Pokémon, conditions dropped. */
+export const selfHpRaiseFromText = (effect: string): number | null => {
+  const match = SELF_HP_RAISE.exec(effect);
+  return match?.[1] === undefined ? null : Number(match[1]);
+};
+
 const KNOCKED_OUT = /\b(?:is|are) Knocked Out\.$/i;
 
 const REPLACES = /\bswitch it with 1 of your (?:[\w-]+ )?Pokémon in play\b[^]*\bremain on the new Pokémon\b/i;

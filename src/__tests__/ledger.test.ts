@@ -1097,6 +1097,38 @@ describe("the card oracle", () => {
     expect(codes([attach("self", "Slowpoke", "Hero's Cape", 2)])).not.toContain("HpExceeded");
   });
 
+  it("does not raise the bound when the game ends before a knockout prints", () => {
+    const run = runLedger([
+      play("self", "Slowpoke", "active", 1),
+      damage("self", "Slowpoke", 150, 2),
+      { at: loc(3), kind: "endGame", reason: "conceded", winner: "Bob" },
+    ], { oracle: oracle("Slowpoke", 110) });
+
+    expect(run.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain("HpExceeded");
+    expect(run.liveGroups[0]?.hp).toEqual([{ max: 110, min: 110 }]);
+  });
+
+  it("lifts the ceiling by an Ability that may raise its own HP", () => {
+    const codes = (hpRaise: number | null) => runLedger([
+      play("self", "Okidogi", "active", 1),
+      damage("self", "Okidogi", 180, 2),
+    ], {
+      oracle: {
+        printings: () => [{
+          abilities: [{ hpRaise, knocksOut: null, leavesPlay: null, name: "Adrena-Power", spread: null }],
+          attacks: [],
+          evolvesFrom: null,
+          hp: 130,
+          prizeValue: null,
+          stage: null,
+        }],
+      },
+    }).diagnostics.map((diagnostic) => diagnostic.code);
+
+    expect(codes(100)).not.toContain("HpExceeded");
+    expect(codes(null)).toContain("HpExceeded");
+  });
+
   it("keeps a body that already exceeded its HP as a candidate for later hits", () => {
     const run = runLedger([
       play("self", "Slowpoke", "active", 1),
@@ -1456,7 +1488,7 @@ describe("a Trainer that replaces a Pokémon in play", () => {
   });
 });
 
-describe("a Stadium that reduces HP", () => {
+describe("a Stadium that changes HP", () => {
   const stadium = (name: string, line: number): GameEvent =>
     ({ at: loc(line), card: card("self", name), kind: "play", zone: "stadium" });
   const oracle = (stage: Stage | null): CardOracle => ({
@@ -1480,6 +1512,26 @@ describe("a Stadium that reduces HP", () => {
     expect(unproven("Gravity Mountain", null)).toBe(false);
     expect(unproven("Gravity Mountain", "Stage1")).toBe(true);
     expect(unproven("Spikemuth Gym", "Stage2")).toBe(true);
+  });
+
+  it("lets a body survive past printed HP only while a Stadium raises it", () => {
+    const codes = (stadiumName: string) => runLedger([
+      stadium(stadiumName, 1),
+      play("opponent", "Dragapult ex", "active", 2),
+      damage("opponent", "Dragapult ex", 340, 3),
+    ], {
+      oracle: {
+        ...oracle(null),
+        stadium: (name: string) => ({
+          benchLimit: null,
+          hpRaise: name === "Lively Stadium" ? { amount: 30, stage: "Basic" } : null,
+          hpReduction: null,
+        }),
+      },
+    }).diagnostics.map((diagnostic) => diagnostic.code);
+
+    expect(codes("Lively Stadium")).not.toContain("HpExceeded");
+    expect(codes("Spikemuth Gym")).toContain("HpExceeded");
   });
 
   it("keeps every body a candidate when only the reduction makes one lethal", () => {

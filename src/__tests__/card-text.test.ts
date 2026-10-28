@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { benchLimitFromText, counterSpreadFromText, hpReductionFromText, knocksOutFromText, leavesPlayFromText, replacesInPlayFromText } from "../card-text.js";
+import { benchLimitFromText, counterSpreadFromText, hpRaiseFromText, hpReductionFromText, knocksOutFromText, leavesPlayFromText, replacesInPlayFromText, selfHpRaiseFromText } from "../card-text.js";
 
 describe("reading a counter spread from card text", () => {
   it("reads an each-spread with its owner, ability rule, and exception", () => {
@@ -71,6 +71,21 @@ describe("reading a Stadium's HP reduction", () => {
       .toEqual({ amount: 10, stage: "Basic" });
     expect(hpReductionFromText("Each player who has any Tera Pokémon in play can have up to 8 Pokémon on their Bench."))
       .toBeNull();
+  });
+});
+
+describe("reading an HP raise", () => {
+  it("reads a Stadium's stage and amount", () => {
+    expect(hpRaiseFromText("Each Basic Pokémon in play (both yours and your opponent’s) gets +30 HP."))
+      .toEqual({ amount: 30, stage: "Basic" });
+    expect(hpRaiseFromText("Each Stage 2 Pokémon in play (both yours and your opponent's) gets -30 HP.")).toBeNull();
+  });
+
+  it("reads an Ability's raise to its own Pokémon, dropping conditions", () => {
+    expect(selfHpRaiseFromText("If this Pokémon has any {D} Energy attached, it gets +100 HP, and the attacks it uses do 100 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance)."))
+      .toBe(100);
+    expect(selfHpRaiseFromText("This Pokémon gets +50 HP.")).toBe(50);
+    expect(selfHpRaiseFromText("Each of your Pokémon gets +20 HP.")).toBeNull();
   });
 });
 

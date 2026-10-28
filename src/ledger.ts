@@ -369,6 +369,10 @@ const survivalUnproven = (
     || (at.phaseIndex === source.at.phaseIndex + 1 && at.turn === null && source.at.turn !== null);
   for (let offset = 1; ; offset += 1) {
     const event = events[index + offset];
+    // The game ended before the client printed a knockout (a concession).
+    if (event?.kind === "endGame") {
+      return true;
+    }
     if (event === undefined || !sameOrCheckup(event.at)) {
       return false;
     }
@@ -663,7 +667,12 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     if (hps.length === 0) {
       return { max: null, min: 0 };
     }
-    return { max: Math.max(...hps), min: Math.min(...hps) };
+    // An Ability that may raise its own HP lifts only the ceiling.
+    const raised = printings?.flatMap((printing) =>
+      printing.hp === null || printing.hp <= 0
+        ? []
+        : [printing.hp + Math.max(0, ...(printing.abilities ?? []).map((ability) => ability.hpRaise ?? 0))]) ?? [];
+    return { max: Math.max(...raised), min: Math.min(...hps) };
   };
 
   const targetZone = (
@@ -1118,10 +1127,12 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     };
     // Surviving more damage than the largest printing allows is impossible,
     // unless a non-Energy attachment (a Tool such as Hero's Cape) may add HP.
+    // A Stadium's raise counts whatever the body's stage: it only loosens.
     // A body already over its max was reported once; don't prune it again.
+    const ceiling = next.hp.max === null ? null : next.hp.max + stadiumRaise();
     if (
-      !lethal && next.hp.max !== null && next.hp.min > next.hp.max
-      && value.hp.min <= next.hp.max
+      !lethal && ceiling !== null && next.hp.min > ceiling
+      && value.hp.min <= ceiling
       && next.attachments.every((attached) => attached.includes("Energy"))
     ) {
       impossibleSurvivals.add(next);
@@ -1177,6 +1188,9 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       ? reduction.amount
       : 0;
   };
+
+  const stadiumRaise = (): number =>
+    stadium === null ? 0 : oracle?.stadium?.(stadium)?.hpRaise?.amount ?? 0;
 
   const setStadium = (name: string, at: EventLocation): void => {
     if (raisedBench(stadium) !== null) {

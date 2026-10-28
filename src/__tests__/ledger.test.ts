@@ -465,17 +465,28 @@ describe("the rest of the transition table", () => {
     to,
   });
 
-  it("heals tracked damage and reports an overflow", () => {
-    const run = runLedger([
+  it("reads a heal line as up to its amount, and reports one on an undamaged body", () => {
+    // The client logs the effect's amount, not what it removed, and only for a damaged body.
+    const codes = (heals: readonly GameEvent[]) => runLedger([
       play("self", "Slowpoke", "active", 1),
       damage("self", "Slowpoke", 30, 2),
-      heal("self", "Slowpoke", 10, 3),
-      heal("self", "Slowpoke", 40, 4),
+      ...heals,
+    ]).diagnostics.map((diagnostic) => diagnostic.code);
+
+    expect(codes([heal("self", "Slowpoke", 10, 3), heal("self", "Slowpoke", 40, 4)])).not.toContain("HealOverflow");
+    expect(codes([heal("self", "Slowpoke", 40, 3), heal("self", "Slowpoke", 10, 4)])).toContain("HealOverflow");
+  });
+
+  it("finds an unnamed-owner heal's side by which body has any damage", () => {
+    const run = runLedger([
+      play("self", "Slowpoke", "bench", 1),
+      play("opponent", "Slowpoke", "bench", 2),
+      damage("opponent", "Slowpoke", 20, 3),
+      heal("self", "Slowpoke", 30, 4, false),
     ]);
 
-    expect(run.liveGroups[0]?.hp).toEqual([{ max: null, min: 31 }]);
-    expect(run.diagnostics.map((diagnostic) => diagnostic.code)).toContain("HealOverflow");
-    expect(run.unexecutable).toBe(false);
+    expect(run.diagnostics.map((diagnostic) => diagnostic.code)).toContain("SideMismatch");
+    expect(run.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain("HealOverflow");
   });
 
   it("learns nothing about HP from a hit the card's own effect heals back", () => {

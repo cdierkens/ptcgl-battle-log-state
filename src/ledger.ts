@@ -1151,8 +1151,10 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     amount: number,
     name: string,
     what: string,
+    capped = false,
   ): void => {
-    const exact = (value: MaterialValue): boolean => value.damage >= amount;
+    // The client logs a heal's effect amount, not what it removed; it logs only a damaged body.
+    const exact = (value: MaterialValue): boolean => (capped ? value.damage > 0 : value.damage >= amount);
     const exactPossible = hasMatch(group, exact);
     if (!exactPossible) {
       diagnose("HealOverflow", "warning", `${what} exceeds the tracked damage on ${name}`, at, group);
@@ -1297,17 +1299,18 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     amount: number,
     at: EventLocation,
     what: string,
+    capped = false,
   ): void => {
     const printed = state.groups.get(keyOf(target.side, target.name));
     const other = state.groups.get(keyOf(otherSide(target.side), target.name));
     if (printed === undefined || other === undefined) {
       const group = resolveGroup(target, what, at);
       if (group !== null) {
-        subtractDamage(group, at, amount, target.name, what);
+        subtractDamage(group, at, amount, target.name, what, capped);
       }
       return;
     }
-    const carries = (value: MaterialValue): boolean => value.damage >= amount;
+    const carries = (value: MaterialValue): boolean => (capped ? value.damage > 0 : value.damage >= amount);
     const viable = [printed, other].filter((group) => hasMatch(group, carries));
     const only = viable.length === 1 ? viable[0] : undefined;
     if (only !== undefined) {
@@ -1320,7 +1323,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
           only,
         );
       }
-      subtractDamage(only, at, amount, target.name, what);
+      subtractDamage(only, at, amount, target.name, what, capped);
       return;
     }
     diagnose(
@@ -1331,7 +1334,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
       printed,
     );
     if (viable.length === 0) {
-      subtractDamage(printed, at, amount, target.name, what);
+      subtractDamage(printed, at, amount, target.name, what, capped);
       return;
     }
     for (const group of viable) {
@@ -1341,7 +1344,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
           carries(value)
             ? [[
               ...values.slice(0, index),
-              { ...value, damage: value.damage - amount },
+              { ...value, damage: Math.max(0, value.damage - amount) },
               ...values.slice(index + 1),
             ]]
             : []),
@@ -1917,7 +1920,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     if (group === null) {
       return;
     }
-    subtractDamage(group, at, amount, target.name, `healing ${String(amount)}`);
+    subtractDamage(group, at, amount, target.name, `healing ${String(amount)}`, true);
   };
 
   const attachTo = (
@@ -2753,7 +2756,7 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
         if (event.ownerPrinted) {
           healGroup(event.target, event.damage, at);
         } else {
-          removeCounters(event.target, event.damage, at, `healing ${String(event.damage)}`);
+          removeCounters(event.target, event.damage, at, `healing ${String(event.damage)}`, true);
         }
         break;
       case "moveCard":

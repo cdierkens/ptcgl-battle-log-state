@@ -1705,10 +1705,16 @@ export const runLedger = (logged: readonly GameEvent[], options: LedgerOptions =
     if (group === undefined) {
       return;
     }
-    const effects = (oracle.printings(actor.name) ?? []).flatMap((printing) => [
+    const printings = oracle.printings(actor.name) ?? [];
+    const own = printings.flatMap((printing) => [
       ...printing.attacks.map((attack) => ({ isAttack: true, name: attack.name, to: attack.leavesPlay })),
       ...(printing.abilities ?? []).map((ability) => ({ isAttack: false, name: ability.name, to: ability.leavesPlay })),
     ]).filter((candidate) => effect === null || candidate.name === effect);
+    // An attack a known X does not print is copied (Memory Helix using Tuck
+    // Tail), and a copied attack's "this Pokémon" is X. An unknown X proves nothing.
+    const effects = own.length > 0 || effect === null || printings.length === 0
+      ? own
+      : (oracle.attack?.(effect) ?? []).map((attack) => ({ isAttack: true, name: attack.name, to: attack.leavesPlay }));
     // A named effect must return the card on every printing; a bare "played X"
     // names no effect, so any of X's effects that returns it will do. Attacks
     // count: the client prints Meowth ex's Tuck Tail as "played Meowth ex".

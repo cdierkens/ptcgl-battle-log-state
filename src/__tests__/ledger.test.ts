@@ -1383,6 +1383,32 @@ describe("effects centred on the acting card", () => {
     expect(live({ leavesPlay: "deck", name: "Run Away Draw" })).toEqual(["Pidgey"]);
     expect(live({ name: "Run Away Draw" })).toContain("Dudunsparce");
   });
+
+  it("takes a Pokémon out of play when an attack it copied returns it", () => {
+    const events: GameEvent[] = [
+      play("opponent", "Mew ex", "active", 1),
+      play("opponent", "Meowth ex", "bench", 2),
+      play("self", "Pidgey", "active", 3),
+      {
+        amount: 60, at: loc(4), attack: "Tuck Tail", kind: "damage", modifiers: [],
+        source: card("opponent", "Mew ex"), target: card("self", "Pidgey"),
+      },
+      { at: loc(5), card: card("opponent", "Mew ex"), kind: "moveCard", to: "hand" },
+    ];
+    const live = (leavesPlay: "hand" | null, mew: Record<string, { readonly attacks: readonly Effect[] }> = {
+      "Mew ex": { attacks: [{ name: "Genome Hacking" }] },
+    }) => runLedger(events, {
+      oracle: {
+        ...cards({ "Meowth ex": { attacks: [{ name: "Tuck Tail" }] }, ...mew }),
+        attack: (name) => (name === "Tuck Tail" ? [{ canHitBench: false, knocksOut: null, leavesPlay, name, spread: null }] : null),
+      },
+    }).liveGroups.map((group) => group.name);
+
+    expect(live("hand")).not.toContain("Mew ex");
+    expect(live(null)).toContain("Mew ex");
+    // Without Mew ex's own text, nothing proves the attack was copied.
+    expect(live("hand", {})).toContain("Mew ex");
+  });
 });
 
 describe("a Stadium that raises the Bench limit", () => {

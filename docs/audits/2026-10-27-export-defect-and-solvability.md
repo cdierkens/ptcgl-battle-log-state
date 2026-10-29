@@ -30,6 +30,56 @@ explanation and two fixes do not:
 - **Scope of the counts.** The placed-counter events come from the 297 of the
   411 logs that contain placed-counter lines.
 
+## Update (2026-10-29): no dead logs
+
+A log is dead when the ledger reports a diagnostic that eliminates every world
+(`HpExceeded`, `HealOverflow`, `KnockoutUnproven`, `UnknownGroup`,
+`BenchOverflow`, `AttachmentMismatch`, `TargetZoneUnreachable`,
+`PrizeOverflow`, `NoVariant`). Over the 304 distinct stored logs, informed,
+the corpus now has **0 dead logs** and 4 capped (`Saturated`). The remaining
+diagnostics are doubts, not contradictions: `SideAmbiguous` 807,
+`SideMismatch` 680, `Saturated` 5, `SpreadUnmarked` 4, `SpreadMismatch` 2.
+Stable confirmed prefixes: 676 of 1,143.
+
+Each dead log was walked back to one of these, and fixed generically:
+
+- **The client prints facts the line does not say.** These are recorded in the
+  parser README, "What a line does not say":
+  - Moved counters name the acting player at both ends (558 of 558 lines).
+  - A heal prints the amount the effect heals, not the damage it removed. The
+    ledger reads it as "up to N", with a floor of 0 (`6d2f83c`, `d2905eb`).
+  - A bare `played X.` also prints some attacks, with no target or damage.
+    Tuck Tail prints as `played Meowth ex.` (logs 199 and 211; 315 is a copy
+    of 211). The ledger puts a damage floor on every opposing body the attack
+    could reach until it leaves play, and the floor never narrows knockout
+    candidates (`1b8ea29`).
+  - Attachment discards are pooled under the first parent and the actor's name
+    (`246351d`).
+- **Copied attacks act on the user.** Mew ex's Memory Helix used Meowth ex's
+  Tuck Tail and went to hand; the ledger read only Mew ex's own printings and
+  kept it in play. An attack a known Pokémon does not print is now read from
+  the attack oracle; an unknown Pokémon proves nothing (`d18232e`).
+- **One stored log was damaged on import, not by the client.** Log 286
+  (imported 2026-07-23) had lost
+  every blank line. After each of 9 damage breakdowns the line break went too,
+  gluing the next line onto the last bullet:
+  `• 3 Benched Pokémon: 60 damage<next line>`. The hidden knockouts read as
+  `HpExceeded`. The client's exporter always ends a bullet with a line break,
+  and logs from the same client version (no `Total damage` bullet) keep the
+  blank line. The parser is faithful: a bullet is free text. The stored text
+  was repaired in the store on 2026-10-29: a line break was restored at the 9
+  glue points, and the summary was re-derived with `refreshGameSummary`. The
+  libraries carry no tolerance for it.
+
+Still open, none of them dead:
+
+- A counter-move target may receive less damage, or none: a Tera Pokémon on
+  the Bench, Battle Cage. The ledger moves the full printed amount.
+- A source for Tera markers. Area Zero Underdepths' Bench depends on them.
+- The Team Rocket's Watchtower type fact, and the Grimmsnarl `SpreadMismatch`.
+- Card facts (`*FromText`) are classified by regex over card text at census
+  time; they should be classified once, up front, into the card data.
+
 ## Summary
 
 1. A placed-counter line names the **acting player** in its `cardName`
